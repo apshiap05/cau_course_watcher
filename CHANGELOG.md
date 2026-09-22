@@ -78,7 +78,7 @@
 - Google Chrome 离线面板渲染检查通过。
 
 ## 早期版本
-
+- 本项目由私人论坛迁移至github，文件结构难免有所疏漏。
 - Chrome 扩展曾使用 `v1.0.0` 和开发中的 `v1.1.0` 版本号。
 - Tampermonkey 用户脚本曾使用 `v1.2.0`。
 - GitHub 上的历史 `courses` Release 保留，不移动其标签。
