@@ -1,7 +1,7 @@
 'use strict';
 
 const TARGET_ORIGIN = 'https://newjw.cau.edu.cn';
-const TARGET_PATH = '/jsxsd/xsxk/xsxk_index';
+const TARGET_PATH = '/jsxsd/xsxk';
 const activeSelections = new Set();
 const NOTIFICATION_ICON =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
@@ -9,7 +9,8 @@ const NOTIFICATION_ICON =
 function isTargetUrl(rawUrl) {
   try {
     const url = new URL(rawUrl);
-    return url.origin === TARGET_ORIGIN && url.pathname === TARGET_PATH;
+    return url.origin === TARGET_ORIGIN &&
+      (url.pathname === TARGET_PATH || url.pathname.startsWith(`${TARGET_PATH}/`));
   } catch (_) {
     return false;
   }
@@ -47,7 +48,10 @@ async function runSelectionInPage(payload) {
   ) {
     throw new Error('选课参数未通过页面环境安全校验。');
   }
-  if (location.origin !== 'https://newjw.cau.edu.cn' || location.pathname !== '/jsxsd/xsxk/xsxk_index') {
+  if (
+    location.origin !== 'https://newjw.cau.edu.cn' ||
+    (location.pathname !== '/jsxsd/xsxk' && !location.pathname.startsWith('/jsxsd/xsxk/'))
+  ) {
     throw new Error('当前标签页不是指定的中国农业大学选课页面。');
   }
 
@@ -115,6 +119,39 @@ async function runSelectionInPage(payload) {
   return { messages, confirmations };
 }
 
+function inspectPageHealthInMainWorld() {
+  const frameElement = document.getElementById('mainFrame');
+  const frameWindow = frameElement?.contentWindow;
+  const frameDocument = frameElement?.contentDocument;
+  let framePath = '';
+  try { framePath = frameDocument?.location?.pathname || ''; } catch (_) { framePath = ''; }
+  const hasCourseInput = Boolean(frameDocument?.querySelector?.('#kcxx'));
+  const hasQueryButton = Boolean(frameDocument && [...frameDocument.querySelectorAll('input[type="button"], button')]
+    .some((element) => String(element.value || element.textContent || '').replace(/\s+/g, '') === '查询'));
+  return {
+    frameReady: Boolean(frameWindow && frameDocument?.documentElement),
+    framePath,
+    entryReady: Boolean(hasCourseInput && hasQueryButton),
+    tableReady: Boolean(frameDocument?.querySelector?.('#dataView')),
+    nativeReady: typeof frameWindow?.xsxkFun === 'function',
+    bridgeReady: true,
+  };
+}
+
+function handleHealthCheck(message, sender, sendResponse) {
+  (async () => {
+    if (sender.id !== chrome.runtime.id || !sender.tab?.id || !isTargetUrl(sender.url)) {
+      throw new Error('拒绝来自非目标选课页面的健康检查请求。');
+    }
+    const injectionResults = await chrome.scripting.executeScript({
+      target: { tabId: sender.tab.id },
+      world: 'MAIN',
+      func: inspectPageHealthInMainWorld,
+    });
+    sendResponse({ ok: true, result: injectionResults?.[0]?.result || null });
+  })().catch((error) => sendResponse({ ok: false, error: String(error?.message || error || '未知错误') }));
+}
+
 function handleSelection(message, sender, sendResponse) {
   (async () => {
     if (sender.id !== chrome.runtime.id || !sender.tab?.id || !isTargetUrl(sender.url)) {
@@ -171,6 +208,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message?.type === 'CAU_NOTIFY') {
     handleNotification(message, sender, sendResponse);
+    return true;
+  }
+  if (message?.type === 'CAU_HEALTH_CHECK') {
+    handleHealthCheck(message, sender, sendResponse);
     return true;
   }
   return false;

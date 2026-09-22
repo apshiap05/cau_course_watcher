@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <title>面板交互测试</title>
+    <script>
+      window.__savedConfig = null;
+      window.chrome = {
+        storage: {
+          local: {
+            get: async () => ({}),
+            set: async (value) => { window.__savedConfig = value['cau-course-watcher:chrome-config:v1']; }
+          }
+        },
+        runtime: { sendMessage: async () => ({ ok: false, error: 'fixture' }) }
+      };
+    </script>
+  </head>
+  <body>
+    <script src="../chrome-extension/content.js"></script>
+    <script>
+      setTimeout(() => {
+        const interval = document.querySelector('#cau-cw-interval');
+        const panel = document.querySelector('#cau-course-watcher-panel');
+        interval.value = '12';
+        interval.dispatchEvent(new Event('input', { bubbles: true }));
+        panel.dispatchEvent(new Event('pointerleave', { bubbles: false }));
+        setTimeout(() => {
+          document.body.dataset.savedInterval = String(window.__savedConfig?.intervalMs || 0);
+          document.body.dataset.autoSaveToast = document.querySelector('#cau-course-watcher-toast')?.textContent || '';
+          document.body.dataset.authorizationSaved = String(Object.prototype.hasOwnProperty.call(window.__savedConfig || {}, 'arm'));
+        }, 250);
+      }, 250);
+    </script>
+  </body>
+</html>

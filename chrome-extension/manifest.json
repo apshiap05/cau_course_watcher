@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "中国农业大学选课余量监控助手",
   "short_name": "农大选课助手",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "minimum_chrome_version": "102",
   "description": "支持单课程或最多四门课程轮询，发现余量后调用教务系统原生流程选课。",
   "homepage_url": "https://github.com/apshiap05/CAU-",
@@ -12,7 +12,8 @@
     "storage"
   ],
   "host_permissions": [
-    "https://newjw.cau.edu.cn/*"
+    "https://newjw.cau.edu.cn/jsxsd/xsxk",
+    "https://newjw.cau.edu.cn/jsxsd/xsxk/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -24,7 +25,8 @@
   "content_scripts": [
     {
       "matches": [
-        "https://newjw.cau.edu.cn/jsxsd/xsxk/xsxk_index*"
+        "https://newjw.cau.edu.cn/jsxsd/xsxk",
+        "https://newjw.cau.edu.cn/jsxsd/xsxk/*"
       ],
       "js": [
         "content.js"

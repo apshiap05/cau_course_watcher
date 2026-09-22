@@ -6,7 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const sourcePath = path.join(__dirname, '..', 'chrome-extension', 'background.js');
-const source = `${fs.readFileSync(sourcePath, 'utf8')}\nglobalThis.__runSelectionInPage = runSelectionInPage;`;
+const source = `${fs.readFileSync(sourcePath, 'utf8')}\nglobalThis.__runSelectionInPage = runSelectionInPage; globalThis.__inspectPageHealth = inspectPageHealthInMainWorld;`;
 
 const originalAlert = () => {};
 const originalConfirm = () => false;
@@ -30,7 +30,15 @@ const frameWindow = {
 };
 const frameDocument = {
   documentElement: {},
-  querySelectorAll: () => [link],
+  location: { pathname: '/jsxsd/xsxkkc/changed-entry' },
+  querySelector(selector) {
+    if (selector === '#kcxx' || selector === '#dataView') return {};
+    return null;
+  },
+  querySelectorAll(selector) {
+    if (selector.includes('input[type="button"]')) return [{ value: '查询' }];
+    return [link];
+  },
 };
 
 const context = vm.createContext({
@@ -43,7 +51,7 @@ const context = vm.createContext({
   },
   location: {
     origin: 'https://newjw.cau.edu.cn',
-    pathname: '/jsxsd/xsxk/xsxk_index',
+    pathname: '/jsxsd/xsxk/changed-semester-entry',
   },
   URL,
   setTimeout,
@@ -66,6 +74,12 @@ vm.runInContext(source, context, { filename: sourcePath });
   assert.deepEqual(Array.from(result.messages), ['选课成功']);
   assert.equal(frameWindow.alert, originalAlert);
   assert.equal(frameWindow.confirm, originalConfirm);
+  const health = context.__inspectPageHealth();
+  assert.equal(health.frameReady, true);
+  assert.equal(health.entryReady, true);
+  assert.equal(health.tableReady, true);
+  assert.equal(health.nativeReady, true);
+  assert.equal(health.bridgeReady, true);
   process.stdout.write('background selection smoke test: ok\n');
 })().catch((error) => {
   console.error(error);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         中国农业大学教务选课余量监控助手
 // @namespace    local.cau.course-watcher
-// @version      1.3.2
+// @version      1.4.0
 // @description  支持单课程或最多四门课程轮询，发现余量后使用页面原生流程选课。
 // @author       apshiap05
 // @license      Apache-2.0
@@ -9,7 +9,8 @@
 // @supportURL   https://github.com/apshiap05/CAU-/issues
 // @downloadURL  https://raw.githubusercontent.com/apshiap05/CAU-/main/userscript/cau-course-watcher.user.js
 // @updateURL    https://raw.githubusercontent.com/apshiap05/CAU-/main/userscript/cau-course-watcher.user.js
-// @match        https://newjw.cau.edu.cn/jsxsd/xsxk/xsxk_index*
+// @match        https://newjw.cau.edu.cn/jsxsd/xsxk
+// @match        https://newjw.cau.edu.cn/jsxsd/xsxk/*
 // @run-at       document-idle
 // @noframes
 // @grant        GM_getValue
@@ -28,8 +29,25 @@
   const BRIDGE_RESPONSE_EVENT = `${SCRIPT_ID}:select-response`;
   const PAGE = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
   const MAX_COURSES = 4;
+  const TARGET_ORIGIN = 'https://newjw.cau.edu.cn';
+  const TARGET_PATH_PREFIX = '/jsxsd/xsxk';
+
+  const PHASES = Object.freeze({
+    STOPPED: 'STOPPED', CHECKING_CONFIG: 'CHECKING_CONFIG', WAITING_PAGE: 'WAITING_PAGE',
+    QUERYING: 'QUERYING', WAITING_NEXT: 'WAITING_NEXT', CANDIDATE_FOUND: 'CANDIDATE_FOUND',
+    SUBMITTING: 'SUBMITTING', WAITING_DIALOGS: 'WAITING_DIALOGS', VERIFYING: 'VERIFYING',
+    SUCCESS: 'SUCCESS', SLOT_LOST: 'SLOT_LOST', UNCERTAIN: 'UNCERTAIN', ERROR_PAUSED: 'ERROR_PAUSED',
+  });
+  const PHASE_LABELS = Object.freeze({
+    [PHASES.STOPPED]: '已停止', [PHASES.CHECKING_CONFIG]: '配置检查中', [PHASES.WAITING_PAGE]: '等待页面就绪',
+    [PHASES.QUERYING]: '查询中', [PHASES.WAITING_NEXT]: '等待下一轮', [PHASES.CANDIDATE_FOUND]: '发现候选课程',
+    [PHASES.SUBMITTING]: '提交选课', [PHASES.WAITING_DIALOGS]: '等待弹窗结束', [PHASES.VERIFYING]: '验证选课结果',
+    [PHASES.SUCCESS]: '选课成功', [PHASES.SLOT_LOST]: '余量被抢走', [PHASES.UNCERTAIN]: '结果不确定',
+    [PHASES.ERROR_PAUSED]: '异常暂停',
+  });
 
   const DEFAULT_COURSE = Object.freeze({
+    id: 'course-1',
     courseName: '',
     matchMode: 'exact',
     courseCode: '',
@@ -51,6 +69,7 @@
     autoConfirmAllPrompts: true,
     desktopNotification: true,
     sound: true,
+    successPolicy: 'stop-on-first',
   });
 
   const state = {
@@ -67,6 +86,14 @@
     config: loadConfig(),
     audioContext: null,
     lastRows: [],
+    phase: PHASES.STOPPED,
+    courseRuntime: new Map(),
+    selectedCourseIds: new Set(),
+    configDirty: false,
+    autoSaveTimer: null,
+    writingConfig: false,
+    health: null,
+    confirming: false,
   };
 
   let ui = null;
@@ -114,7 +141,8 @@
       if (!Number.isFinite(parsed)) return fallback;
       return Math.min(max, Math.max(min, parsed));
     };
-    const sanitizeCourse = (course = {}) => ({
+    const sanitizeCourse = (course = {}, index = 0) => ({
+      id: /^[A-Za-z0-9_-]{1,80}$/.test(String(course.id || '')) ? String(course.id) : `course-${index + 1}`,
       courseName: String(course.courseName || '').trim(),
       matchMode: course.matchMode === 'contains' ? 'contains' : 'exact',
       courseCode: String(course.courseCode || '').trim(),
@@ -138,12 +166,25 @@
       autoConfirmAllPrompts: Boolean(input.autoConfirmAllPrompts),
       desktopNotification: Boolean(input.desktopNotification),
       sound: Boolean(input.sound),
+      successPolicy: input.successPolicy === 'continue-until-all-selected'
+        ? 'continue-until-all-selected'
+        : 'stop-on-first',
     };
   }
 
   function activeCourseConfigs(config) {
     const courses = config.mode === 'multi' ? config.courses : config.courses.slice(0, 1);
     return courses.map((course, targetIndex) => ({ ...config, ...course, targetIndex }));
+  }
+
+  function isTargetUrl(rawUrl) {
+    try {
+      const url = new URL(rawUrl);
+      return url.origin === TARGET_ORIGIN &&
+        (url.pathname === TARGET_PATH_PREFIX || url.pathname.startsWith(`${TARGET_PATH_PREFIX}/`));
+    } catch (_) {
+      return false;
+    }
   }
 
   function getCourseControlState(mode, courseCount, busy) {
@@ -176,6 +217,35 @@
 
   function compact(value) {
     return normalize(value).replace(/\s+/g, '').toLocaleLowerCase('zh-CN');
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[character]);
+  }
+
+  function ensureCourseRuntime(course) {
+    if (!state.courseRuntime.has(course.id)) {
+      state.courseRuntime.set(course.id, { text: '未查询', tone: 'gray', attempts: 0, matches: 0 });
+    }
+    return state.courseRuntime.get(course.id);
+  }
+
+  function setCourseStatus(course, text, tone = 'gray', details = {}) {
+    if (!course?.id) return;
+    const current = ensureCourseRuntime(course);
+    const next = { ...current, ...details, text, tone };
+    state.courseRuntime.set(course.id, next);
+    if (!ui) return;
+    const block = ui.courseList.querySelector(`[data-course-id="${course.id}"]`);
+    if (!block) return;
+    block.dataset.tone = tone;
+    const badge = block.querySelector('[data-course-status]');
+    if (badge) {
+      badge.className = `cau-cw-course-state ${tone}`;
+      badge.textContent = text;
+    }
   }
 
   function sleep(ms) {
@@ -318,6 +388,51 @@
         max-width: min(720px, 86vw); padding: 11px 16px; color: white; background: #246d43;
         border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.22); font: 14px/1.45 "Microsoft YaHei", sans-serif;
       }
+      #${SCRIPT_ID}-panel { width: 468px; border: 0; border-radius: 16px; background: linear-gradient(180deg,#f6faf7 0,#fbfdfb 100%); box-shadow: 0 20px 55px rgba(12,61,32,.22),0 2px 10px rgba(12,61,32,.12); }
+      #${SCRIPT_ID}-panel .cau-cw-header { padding: 14px 16px; background: linear-gradient(135deg,#1f7443,#348a55); border-radius: 16px 16px 0 0; }
+      #${SCRIPT_ID}-panel .cau-cw-title small { display: inline-block; margin-left: 4px; }
+      #${SCRIPT_ID}-panel .cau-cw-body { padding: 14px; }
+      #${SCRIPT_ID}-panel .cau-cw-section { border-radius: 12px; box-shadow: 0 2px 8px rgba(31,116,67,.04); }
+      #${SCRIPT_ID}-panel .cau-cw-health { margin-bottom: 10px; padding: 10px 11px; border: 1px solid #d6e6db; border-radius: 11px; background: rgba(255,255,255,.82); }
+      #${SCRIPT_ID}-panel .cau-cw-health-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+      #${SCRIPT_ID}-panel .cau-cw-health-head strong { color:#1c653a; }
+      #${SCRIPT_ID}-panel .cau-cw-health-summary { color:#78867d; font-size:12px; }
+      #${SCRIPT_ID}-panel .cau-cw-health-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+      #${SCRIPT_ID}-panel .cau-cw-health-item { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 8px; border-radius:8px; color:#4c6053; background:#f2f7f3; }
+      #${SCRIPT_ID}-panel .cau-cw-health-item::before { content:''; width:7px; height:7px; flex:0 0 7px; border-radius:50%; background:#a7b1aa; }
+      #${SCRIPT_ID}-panel .cau-cw-health-item.ok::before { background:#2b9a57; box-shadow:0 0 0 3px rgba(43,154,87,.12); }
+      #${SCRIPT_ID}-panel .cau-cw-health-item.warn::before { background:#dfa326; box-shadow:0 0 0 3px rgba(223,163,38,.12); }
+      #${SCRIPT_ID}-panel .cau-cw-health-item.bad::before { background:#d34e45; box-shadow:0 0 0 3px rgba(211,78,69,.12); }
+      #${SCRIPT_ID}-panel .cau-cw-health-item span { flex:1; }
+      #${SCRIPT_ID}-panel .cau-cw-health-item b { font-size:12px; }
+      #${SCRIPT_ID}-panel .cau-cw-status { border:1px solid #d9e8de; background:linear-gradient(135deg,#edf7f0,#f5faf6); }
+      #${SCRIPT_ID}-panel .cau-cw-course-block { position:relative; padding:11px; border-radius:11px; transition:border-color .18s,box-shadow .18s; }
+      #${SCRIPT_ID}-panel .cau-cw-course-block[data-tone="yellow"] { border-color:#e7c76c; box-shadow:0 0 0 2px rgba(231,199,108,.12); }
+      #${SCRIPT_ID}-panel .cau-cw-course-block[data-tone="red"] { border-color:#df8c84; box-shadow:0 0 0 2px rgba(223,140,132,.12); }
+      #${SCRIPT_ID}-panel .cau-cw-course-block[data-tone="green"] { border-color:#75bd8c; box-shadow:0 0 0 2px rgba(117,189,140,.13); }
+      #${SCRIPT_ID}-panel .cau-cw-course-title { display:flex; min-width:0; align-items:center; gap:8px; }
+      #${SCRIPT_ID}-panel .cau-cw-course-title b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      #${SCRIPT_ID}-panel .cau-cw-course-state { max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:3px 8px; border-radius:999px; color:#69776d; background:#e8eeea; font-size:11px; font-weight:700; }
+      #${SCRIPT_ID}-panel .cau-cw-course-state.yellow { color:#7a5707; background:#fff2c8; }
+      #${SCRIPT_ID}-panel .cau-cw-course-state.red { color:#9d3028; background:#fde6e3; }
+      #${SCRIPT_ID}-panel .cau-cw-course-state.green { color:#176a37; background:#dff3e6; }
+      #${SCRIPT_ID}-panel .cau-cw-save-note { display:inline-flex; align-items:center; gap:5px; color:#6b7c70; font-size:11px; }
+      #${SCRIPT_ID}-panel .cau-cw-save-note::before { content:'✓'; color:#27824b; font-weight:900; }
+      #${SCRIPT_ID}-panel .cau-cw-btn { border-radius:9px; transition:transform .15s,filter .15s,box-shadow .15s; }
+      #${SCRIPT_ID}-panel .cau-cw-btn:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 4px 10px rgba(31,116,67,.14); }
+      #${SCRIPT_ID}-panel .cau-cw-log li { padding:2px 0; border-bottom:1px dashed rgba(73,105,83,.12); }
+      #${SCRIPT_ID}-panel .cau-cw-log .phase { color:#176f3b; font-weight:700; }
+      #${SCRIPT_ID}-modal { position:fixed; inset:0; z-index:2147483647; display:grid; place-items:center; padding:22px; background:rgba(11,31,19,.46); backdrop-filter:blur(3px); }
+      #${SCRIPT_ID}-modal[hidden] { display:none !important; }
+      #${SCRIPT_ID}-modal .cau-cw-dialog { width:min(560px,94vw); max-height:86vh; overflow:auto; padding:20px; color:#203129; background:#fff; border:1px solid #cfe1d5; border-radius:16px; box-shadow:0 22px 70px rgba(5,32,15,.3); font:13px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif; }
+      #${SCRIPT_ID}-modal h2 { margin:0 0 5px; color:#195f36; font-size:19px; }
+      #${SCRIPT_ID}-modal p { margin:4px 0 12px; color:#6b786f; }
+      #${SCRIPT_ID}-modal .cau-cw-confirm-summary { margin:12px 0; padding:12px; border-radius:10px; background:#f1f7f3; }
+      #${SCRIPT_ID}-modal .cau-cw-confirm-summary div { margin:4px 0; }
+      #${SCRIPT_ID}-modal .cau-cw-confirm-actions { display:flex; justify-content:flex-end; gap:9px; margin-top:15px; }
+      #${SCRIPT_ID}-modal button { min-width:100px; min-height:38px; border:0; border-radius:9px; color:#244d32; background:#e5efe8; font-weight:700; cursor:pointer; }
+      #${SCRIPT_ID}-modal button[data-confirm] { color:white; background:#267b49; }
+      @media (max-width:720px) { #${SCRIPT_ID}-panel { inset:8px 8px auto auto; width:calc(100vw - 16px); max-height:calc(100vh - 16px); } }
     `;
     document.documentElement.appendChild(style);
   }
@@ -329,7 +444,7 @@
     panel.id = `${SCRIPT_ID}-panel`;
     panel.innerHTML = `
       <div class="cau-cw-header">
-        <div class="cau-cw-title">选课余量监控助手 <small style="font-weight:500;opacity:.78">v1.3.2</small></div>
+        <div class="cau-cw-title">选课余量监控助手 <small>v1.4.0</small></div>
         <span id="cau-cw-run-state" class="cau-cw-paused">已停止</span>
         <button id="cau-cw-collapse" class="cau-cw-icon-btn" title="收起/展开">—</button>
       </div>
@@ -337,6 +452,16 @@
         <div class="cau-cw-tabs" role="tablist" aria-label="监控模式">
           <button class="cau-cw-mode-tab" type="button" role="tab" data-mode="normal">正常模式</button>
           <button class="cau-cw-mode-tab" type="button" role="tab" data-mode="multi">多选模式</button>
+        </div>
+        <div class="cau-cw-health" aria-label="页面健康状态">
+          <div class="cau-cw-health-head"><strong>页面健康状态</strong><span id="cau-cw-health-summary" class="cau-cw-health-summary">正在检测…</span></div>
+          <div class="cau-cw-health-grid">
+            <div class="cau-cw-health-item" data-health="page"><span>页面状态</span><b>检测中</b></div>
+            <div class="cau-cw-health-item" data-health="entry"><span>选课入口</span><b>检测中</b></div>
+            <div class="cau-cw-health-item" data-health="table"><span>课程表</span><b>检测中</b></div>
+            <div class="cau-cw-health-item" data-health="native"><span>原生选课函数</span><b>检测中</b></div>
+            <div class="cau-cw-health-item" data-health="bridge"><span>弹窗桥接</span><b>检测中</b></div>
+          </div>
         </div>
         <div class="cau-cw-status">
           <div>页面：<b id="cau-cw-page-state">检测中</b></div>
@@ -368,17 +493,19 @@
           <label class="cau-cw-check"><input id="cau-cw-auto-confirm" type="checkbox"><span>自动点击本次选课流程中的所有“确定”弹窗（包括班级确认和课程组确认）</span></label>
           <label class="cau-cw-check"><input id="cau-cw-notify" type="checkbox"><span>成功、验证码或异常时发送桌面通知</span></label>
           <label class="cau-cw-check"><input id="cau-cw-sound" type="checkbox"><span>重要事件播放提示音</span></label>
+          <label id="cau-cw-continue-row" class="cau-cw-check"><input id="cau-cw-continue-all" type="checkbox"><span>一门成功后继续监控，直到全部待选课程都选中</span></label>
           <label class="cau-cw-check cau-cw-arm"><input id="cau-cw-arm" type="checkbox"><span><b>本次授权：</b>我确认上述条件无误，并授权发现余量后自动提交一次选课、按上述设置处理该次选课弹窗。此项不会保存，刷新页面后需重新勾选。</span></label>
         </div>
 
         <div class="cau-cw-actions">
-          <button id="cau-cw-save" class="cau-cw-btn cau-cw-btn-secondary">保存配置</button>
+          <button id="cau-cw-save" class="cau-cw-btn cau-cw-btn-secondary">立即保存</button>
           <button id="cau-cw-query" class="cau-cw-btn cau-cw-btn-secondary">仅查询一次</button>
           <button id="cau-cw-start" class="cau-cw-btn">开始监控</button>
           <button id="cau-cw-pause" class="cau-cw-btn cau-cw-btn-danger" disabled>立即停止</button>
           <button id="cau-cw-enter" class="cau-cw-btn cau-cw-btn-secondary">进入自由选课</button>
           <button id="cau-cw-clear-log" class="cau-cw-btn cau-cw-btn-secondary">清空日志</button>
         </div>
+        <p class="cau-cw-save-note">修改配置后，鼠标离开面板会自动保存</p>
         <p class="cau-cw-hint">紧急停止：按 Esc。验证码、会话失效、不确定的选课结果或非余量类失败都会自动暂停。</p>
 
         <div class="cau-cw-section">
@@ -388,6 +515,12 @@
       </div>
     `;
     document.body.appendChild(panel);
+
+    const modal = document.createElement('div');
+    modal.id = `${SCRIPT_ID}-modal`;
+    modal.hidden = true;
+    modal.innerHTML = `<div class="cau-cw-dialog" role="dialog" aria-modal="true" aria-labelledby="cau-cw-confirm-title"><h2 id="cau-cw-confirm-title">确认开始监控</h2><p>请最后核对课程条件。点击“确认并开始”后，发现余量将按授权自动提交。</p><div id="cau-cw-confirm-summary" class="cau-cw-confirm-summary"></div><div class="cau-cw-confirm-actions"><button type="button" data-cancel>返回修改</button><button type="button" data-confirm>确认并开始</button></div></div>`;
+    document.body.appendChild(modal);
 
     ui = {
       panel,
@@ -404,6 +537,10 @@
       addCourse: panel.querySelector('#cau-cw-add-course'),
       modeTabs: [...panel.querySelectorAll('.cau-cw-mode-tab')],
       targetHint: panel.querySelector('#cau-cw-target-hint'),
+      modal,
+      confirmSummary: modal.querySelector('#cau-cw-confirm-summary'),
+      healthSummary: panel.querySelector('#cau-cw-health-summary'),
+      healthItems: Object.fromEntries([...panel.querySelectorAll('[data-health]')].map((item) => [item.dataset.health, item])),
     };
 
     writeConfigToPanel(state.config);
@@ -416,11 +553,13 @@
     return document.getElementById(id);
   }
 
-  function courseBlockTemplate(index) {
+  function courseBlockTemplate(index, course) {
+    const runtime = state.courseRuntime.get(course.id) || { text: '未查询', tone: 'gray', attempts: 0, matches: 0 };
+    const label = course.courseName ? `待选课程 ${index + 1}（${escapeHtml(course.courseName)}）` : `待选课程 ${index + 1}`;
     return `
-      <div class="cau-cw-course-block" data-course-index="${index}">
+      <div class="cau-cw-course-block" data-course-index="${index}" data-course-id="${course.id}" data-tone="${runtime.tone}">
         <div class="cau-cw-course-head">
-          <b>待选课程 ${index + 1}</b>
+          <div class="cau-cw-course-title"><b>${label}</b><span class="cau-cw-course-state ${runtime.tone}" data-course-status>${escapeHtml(runtime.text)}</span></div>
           <button class="cau-cw-small-btn cau-cw-remove" type="button" data-remove-course="${index}" title="删除这门课程">−</button>
         </div>
         <div class="cau-cw-grid">
@@ -440,7 +579,8 @@
 
   function renderCourseBlocks(courses) {
     const cleanCourses = sanitizeConfig({ ...state.config, courses }).courses;
-    ui.courseList.innerHTML = cleanCourses.map((_, index) => courseBlockTemplate(index)).join('');
+    cleanCourses.forEach((course) => ensureCourseRuntime(course));
+    ui.courseList.innerHTML = cleanCourses.map((course, index) => courseBlockTemplate(index, course)).join('');
     [...ui.courseList.querySelectorAll('.cau-cw-course-block')].forEach((block, index) => {
       const course = cleanCourses[index];
       Object.entries(course).forEach(([key, value]) => {
@@ -453,6 +593,7 @@
 
   function readCourseBlocks() {
     return [...ui.courseList.querySelectorAll('.cau-cw-course-block')].map((block) => ({
+      id: block.dataset.courseId,
       courseName: block.querySelector('[data-course-field="courseName"]').value,
       matchMode: block.querySelector('[data-course-field="matchMode"]').value,
       courseCode: block.querySelector('[data-course-field="courseCode"]').value,
@@ -469,7 +610,7 @@
     if (!ui) return;
     const mode = ui.panel.dataset.mode === 'multi' ? 'multi' : 'normal';
     const blocks = [...ui.courseList.querySelectorAll('.cau-cw-course-block')];
-    const controls = getCourseControlState(mode, blocks.length, state.running || state.inFlight);
+    const controls = getCourseControlState(mode, blocks.length, state.running || state.inFlight || state.confirming);
     ui.modeTabs.forEach((tab) => {
       const active = tab.dataset.mode === mode;
       tab.classList.toggle('active', active);
@@ -491,9 +632,11 @@
       ? '可配置 1–4 门课程并按顺序交替查询；每门课程都可独立设置最低余量和多班策略。'
       : '同名课程有多个班时，建议至少填写教师、课序号或时间；否则默认选择余量最多的班。';
     field('cau-cw-query').textContent = controls.queryLabel;
+    field('cau-cw-continue-row').hidden = !controls.isMulti;
   }
 
   function writeConfigToPanel(config) {
+    state.writingConfig = true;
     ui.panel.dataset.mode = config.mode;
     renderCourseBlocks(config.courses);
     field('cau-cw-interval').value = String(config.intervalMs / 1000);
@@ -503,6 +646,8 @@
     field('cau-cw-auto-confirm').checked = config.autoConfirmAllPrompts;
     field('cau-cw-notify').checked = config.desktopNotification;
     field('cau-cw-sound').checked = config.sound;
+    field('cau-cw-continue-all').checked = config.successPolicy === 'continue-until-all-selected';
+    state.writingConfig = false;
   }
 
   function readConfigFromPanel() {
@@ -516,6 +661,61 @@
       autoConfirmAllPrompts: field('cau-cw-auto-confirm').checked,
       desktopNotification: field('cau-cw-notify').checked,
       sound: field('cau-cw-sound').checked,
+      successPolicy: field('cau-cw-continue-all').checked ? 'continue-until-all-selected' : 'stop-on-first',
+    });
+  }
+
+  function markConfigDirty() {
+    if (state.writingConfig || state.running || state.inFlight) return;
+    state.configDirty = true;
+    clearTimeout(state.autoSaveTimer);
+    state.autoSaveTimer = setTimeout(() => flushAutoSave(true), 1800);
+  }
+
+  function flushAutoSave(showNotice = true) {
+    clearTimeout(state.autoSaveTimer);
+    state.autoSaveTimer = null;
+    if (!state.configDirty || state.running || state.inFlight || !ui) return state.config;
+    try {
+      const clean = saveConfig(readConfigFromPanel());
+      state.configDirty = false;
+      if (showNotice) toast('配置已自动保存', false, 3000);
+      return clean;
+    } catch (error) {
+      state.configDirty = true;
+      handleFatal(error, '自动保存配置失败', false);
+      return state.config;
+    }
+  }
+
+  function configurationSummary(config, health) {
+    const courses = activeCourseConfigs(config);
+    const courseLines = courses.map((course, index) => {
+      const filters = [course.teacher && `教师：${course.teacher}`, course.classNumber && `课序号：${course.classNumber}`, course.courseCode && `课程编号：${course.courseCode}`, course.campus && `校区：${course.campus}`, course.timeKeyword && `时间：${course.timeKeyword}`].filter(Boolean).join('；');
+      return `<div><strong>${index + 1}. ${escapeHtml(course.courseName)}</strong> · 最低余量 ${course.minRemaining}${filters ? `<br><small>${escapeHtml(filters)}</small>` : ''}</div>`;
+    }).join('');
+    const policy = config.mode === 'multi' && config.successPolicy === 'continue-until-all-selected' ? '全部课程选中后停止' : '任意一门成功后停止';
+    return `<div><strong>模式：</strong>${config.mode === 'multi' ? `多选模式（${courses.length} 门）` : '正常模式'}</div>${courseLines}<div><strong>刷新：</strong>${formatSeconds(config.intervalMs)} + 0–${config.jitterMs} ms 随机抖动</div><div><strong>成功策略：</strong>${policy}</div><div><strong>弹窗：</strong>${config.autoConfirmAllPrompts ? '自动确认本次选课流程中的全部确认框' : '手动处理确认框'}</div><div><strong>页面：</strong>${health?.healthy ? '页面健康检查通过' : '页面健康状态异常'}</div>`;
+  }
+
+  function confirmStart(config, health) {
+    ui.confirmSummary.innerHTML = configurationSummary(config, health);
+    ui.modal.hidden = false;
+    ui.modal.querySelector('[data-confirm]').focus();
+    return new Promise((resolve) => {
+      const finish = (answer) => {
+        ui.modal.hidden = true;
+        ui.modal.removeEventListener('click', onClick);
+        document.removeEventListener('keydown', onKey, true);
+        resolve(answer);
+      };
+      const onClick = (event) => {
+        if (event.target.closest('[data-confirm]')) finish(true);
+        else if (event.target.closest('[data-cancel]') || event.target === ui.modal) finish(false);
+      };
+      const onKey = (event) => { if (event.key === 'Escape') finish(false); };
+      ui.modal.addEventListener('click', onClick);
+      document.addEventListener('keydown', onKey, true);
     });
   }
 
@@ -532,6 +732,7 @@
         config.mode = tab.dataset.mode === 'multi' ? 'multi' : 'normal';
         state.config = sanitizeConfig(config);
         writeConfigToPanel(state.config);
+        markConfigDirty();
         log(`已切换到${state.config.mode === 'multi' ? '多选模式' : '正常模式'}。`);
       });
     });
@@ -543,8 +744,9 @@
         toast(`最多只能监控 ${MAX_COURSES} 门课程`, true);
         return;
       }
-      courses.push({ ...DEFAULT_COURSE });
+      courses.push({ ...DEFAULT_COURSE, id: `course-${Date.now().toString(36)}` });
       renderCourseBlocks(courses);
+      markConfigDirty();
       log(`已增加待选课程块，当前共 ${courses.length} 门。`);
     });
 
@@ -557,6 +759,7 @@
       if (!Number.isInteger(index) || index < 0 || index >= courses.length) return;
       const [removed] = courses.splice(index, 1);
       renderCourseBlocks(courses);
+      markConfigDirty();
       log(`已删除${removed.courseName ? `“${removed.courseName}”` : `待选课程 ${index + 1}`}，当前共 ${courses.length} 门。`);
     });
 
@@ -605,34 +808,65 @@
     }
   }
 
+  function setPhase(phase, detail = '', options = {}) {
+    const previous = state.phase;
+    state.phase = phase;
+    if (ui) {
+      ui.runState.textContent = PHASE_LABELS[phase] || phase;
+      ui.runState.className = phase === PHASES.ERROR_PAUSED ? 'cau-cw-running' : phase === PHASES.STOPPED ? 'cau-cw-paused' : 'cau-cw-running';
+    }
+    if (options.silent || (!detail && previous === phase)) return;
+    const message = detail ? `${PHASE_LABELS[phase] || phase}：${detail}` : PHASE_LABELS[phase] || phase;
+    log(message, options.level || (phase === PHASES.ERROR_PAUSED ? 'error' : phase === PHASES.SUCCESS ? 'success' : 'phase'), { phase, course: options.course });
+  }
+
   async function queryOnceManually() {
     if (state.running || state.inFlight) {
       toast('当前正在运行，请先停止');
       return;
     }
     try {
+      setPhase(PHASES.CHECKING_CONFIG);
       const config = saveConfig(readConfigFromPanel());
+      state.configDirty = false;
+        state.configDirty = false;
       writeConfigToPanel(config);
       validateConfig(config, false);
       const courses = activeCourseConfigs(config);
       state.stopRequested = false;
       state.inFlight = true;
       ensureAudioContext();
-      const doc = await enterFreeCoursePage();
-      ui.runState.textContent = courses.length > 1 ? '单轮查询' : '查询中';
-      ui.runState.className = 'cau-cw-running';
+      setPhase(PHASES.WAITING_PAGE);
+      let doc;
+      try { doc = await enterFreeCoursePage(); } catch (error) {
+        stopForPageMismatch({ message: friendlyError(error) });
+        return;
+      }
+      const health = await checkPageHealth();
+      if (!health.healthy) { stopForPageMismatch(health); return; }
       updateButtons();
       for (let index = 0; index < courses.length; index += 1) {
         if (index > 0 && !(await waitForSharedInterval(config))) break;
         if (state.stopRequested) break;
         const courseConfig = courses[index];
         state.attempts += 1;
+        const runtime = ensureCourseRuntime(courseConfig);
+        setCourseStatus(courseConfig, `第 ${runtime.attempts + 1} 次查询中`, 'yellow', { attempts: runtime.attempts + 1 });
+        setPhase(PHASES.QUERYING, targetLabel(courseConfig), { course: courseConfig });
         ui.attempts.textContent = `${state.attempts} 次`;
         ui.next.textContent = '查询中';
         ui.result.textContent = `正在查询 ${targetLabel(courseConfig)}`;
         const rows = await performQuery(doc, courseConfig);
         state.lastRows = rows;
         renderQuerySummary(rows, courseConfig);
+        const matches = matchingRows(rows, courseConfig);
+        const available = chooseEligibleRows(rows, courseConfig);
+        setCourseStatus(
+          courseConfig,
+          !matches.length ? '无匹配' : `第 ${runtime.attempts + 1} 次查询 · 找到 ${matches.length} 个班${available.length ? ` · ${available.length} 班有余量` : ''}`,
+          !matches.length ? 'gray' : available.length ? 'green' : 'yellow',
+          { matches: matches.length },
+        );
       }
       if (!state.stopRequested && courses.length > 1) log(`已完成 ${courses.length} 门课程的单轮查询。`, 'success');
     } catch (error) {
@@ -643,8 +877,7 @@
       state.nextRunAt = 0;
       state.inFlight = false;
       state.stopRequested = false;
-      ui.runState.textContent = '已停止';
-      ui.runState.className = 'cau-cw-paused';
+      if (state.phase !== PHASES.ERROR_PAUSED) setPhase(PHASES.STOPPED, '', { silent: true });
       ui.next.textContent = '—';
       updateButtons();
     }
@@ -653,6 +886,7 @@
   async function waitForSharedInterval(config) {
     const jitter = Math.floor(Math.random() * (config.jitterMs + 1));
     state.nextRunAt = Date.now() + config.intervalMs + jitter;
+    setPhase(PHASES.WAITING_NEXT, `下一次查询约 ${formatSeconds(config.intervalMs + jitter)} 后开始`);
     updateCountdown();
     clearInterval(state.countdownTimer);
     state.countdownTimer = setInterval(updateCountdown, 250);
@@ -667,20 +901,33 @@
   }
 
   async function startMonitoring() {
-    if (state.running || state.inFlight) return;
+    if (state.running || state.inFlight || state.confirming) return;
+    state.confirming = true;
+    updateButtons();
     try {
+      setPhase(PHASES.CHECKING_CONFIG);
       const config = saveConfig(readConfigFromPanel());
+      state.configDirty = false;
       writeConfigToPanel(config);
       validateConfig(config, true);
       ensureAudioContext();
+      setPhase(PHASES.WAITING_PAGE);
+      try { await enterFreeCoursePage(); } catch (error) {
+        stopForPageMismatch({ message: friendlyError(error) });
+        return;
+      }
+      const health = await checkPageHealth();
+      if (!health.healthy) { stopForPageMismatch(health); return; }
+      const confirmed = await confirmStart(config, health);
+      if (!confirmed) { setPhase(PHASES.STOPPED, '用户返回修改配置。'); return; }
       state.running = true;
       state.attempts = 0;
       state.consecutiveErrors = 0;
       state.transientFailures = 0;
       state.courseIndex = 0;
       state.stopRequested = false;
-      ui.runState.textContent = '运行中';
-      ui.runState.className = 'cau-cw-running';
+      state.selectedCourseIds.clear();
+      activeCourseConfigs(config).forEach((course) => setCourseStatus(course, '等待查询', 'yellow', { attempts: 0, matches: 0 }));
       ui.result.textContent = '等待首次查询';
       const courses = activeCourseConfigs(config);
       log(`开始${config.mode === 'multi' ? `轮询 ${courses.length} 门课程：${courses.map((course) => `“${course.courseName}”`).join('、')}` : `监控“${courses[0].courseName}”`}，共享基础间隔 ${formatSeconds(config.intervalMs)}。`, 'success');
@@ -689,10 +936,15 @@
     } catch (error) {
       toast(error.message, true);
       log(error.message, 'error');
+      setPhase(PHASES.ERROR_PAUSED, friendlyError(error), { level: 'error' });
+    } finally {
+      state.confirming = false;
+      updateButtons();
     }
   }
 
   function pauseMonitoring(reason, options = {}) {
+    const wasActive = state.running || state.inFlight;
     state.stopRequested = true;
     clearTimeout(state.timer);
     clearInterval(state.countdownTimer);
@@ -701,19 +953,23 @@
     state.running = false;
     state.nextRunAt = 0;
     if (ui) {
-      ui.runState.textContent = options.success ? '已成功' : '已停止';
-      ui.runState.className = 'cau-cw-paused';
+      if (wasActive) {
+        activeCourseConfigs(state.config).forEach((course) => {
+          if (state.selectedCourseIds.has(course.id)) return;
+          setCourseStatus(course, options.success ? '因其他课程成功而停止' : '已暂停', options.success ? 'gray' : 'red');
+        });
+      }
       ui.next.textContent = '—';
-      log(reason, options.success ? 'success' : options.error ? 'error' : '');
+      setPhase(options.phase || (options.success ? PHASES.SUCCESS : options.error ? PHASES.ERROR_PAUSED : PHASES.STOPPED), reason, { level: options.success ? 'success' : options.error ? 'error' : '' });
       updateButtons();
     }
   }
 
   function updateButtons() {
     if (!ui) return;
-    ui.start.disabled = state.running || state.inFlight;
+    ui.start.disabled = state.running || state.inFlight || state.confirming;
     ui.pause.disabled = (!state.running && !state.inFlight) || state.stopRequested;
-    field('cau-cw-query').disabled = state.running || state.inFlight;
+    field('cau-cw-query').disabled = state.running || state.inFlight || state.confirming;
     updateCourseControls();
   }
 
@@ -725,6 +981,7 @@
     const errorBackoff = Math.min(60000, state.consecutiveErrors * state.consecutiveErrors * 1500);
     const transientBackoff = Math.min(15000, state.transientFailures * 2500);
     const delay = delayOverride ?? (state.config.intervalMs + jitter + errorBackoff + transientBackoff);
+    setPhase(PHASES.WAITING_NEXT, delay === 0 ? '准备首次查询' : `下一轮将在 ${formatSeconds(delay)} 后开始`);
     state.nextRunAt = Date.now() + delay;
     updateCountdown();
     state.countdownTimer = setInterval(updateCountdown, 250);
@@ -762,7 +1019,13 @@
     const courseConfig = courses[state.courseIndex];
 
     try {
+      const runtime = ensureCourseRuntime(courseConfig);
+      setCourseStatus(courseConfig, `第 ${runtime.attempts + 1} 次查询中`, 'yellow', { attempts: runtime.attempts + 1 });
+      setPhase(PHASES.WAITING_PAGE, targetLabel(courseConfig), { course: courseConfig });
       const doc = await enterFreeCoursePage();
+      const health = await checkPageHealth();
+      if (!health.healthy) { stopForPageMismatch(health); return; }
+      setPhase(PHASES.QUERYING, targetLabel(courseConfig), { course: courseConfig });
       ui.result.textContent = `正在查询 ${targetLabel(courseConfig)}`;
       const rows = await performQuery(doc, courseConfig);
       state.lastRows = rows;
@@ -772,6 +1035,8 @@
 
       const eligible = chooseEligibleRows(rows, courseConfig);
       if (!eligible.length) {
+        const matches = matchingRows(rows, courseConfig);
+        setCourseStatus(courseConfig, matches.length ? `第 ${runtime.attempts + 1} 次查询 · ${matches.length} 班暂无余量` : '无匹配', matches.length ? 'yellow' : 'gray', { matches: matches.length });
         state.transientFailures = 0;
         advanceCourseIndex();
         scheduleNext();
@@ -779,6 +1044,8 @@
       }
 
       const target = eligible[0];
+      setCourseStatus(courseConfig, `找到 ${eligible.length} 个可选班级`, 'green', { matches: eligible.length });
+      setPhase(PHASES.CANDIDATE_FOUND, describeRow(target), { course: courseConfig });
       const descriptor = describeRow(target);
       if (eligible.length > 1) {
         log(`${targetLabel(courseConfig)}：发现 ${eligible.length} 个有余量的匹配班级，将按“${strategyLabel(courseConfig.selectionStrategy)}”选择：${descriptor}`);
@@ -787,20 +1054,24 @@
       }
 
       if (isAlreadySelected(target)) {
-        finishSuccess(`检测到目标班级已经在选课结果中：${descriptor}`);
+        const stopped = finishSuccess(`检测到目标班级已经在选课结果中：${descriptor}`, courseConfig);
+        if (!stopped) { advanceCourseIndex(); scheduleNext(); }
         return;
       }
 
       const result = await selectCourse(target);
-      if (result === 'retry') {
-        state.transientFailures += 1;
+      if (result === 'retry' || result === 'continue') {
+        state.transientFailures = result === 'retry' ? state.transientFailures + 1 : 0;
         advanceCourseIndex();
         scheduleNext();
       }
     } catch (error) {
       state.consecutiveErrors += 1;
+      setCourseStatus(courseConfig, `异常：${friendlyError(error)}`, 'red');
       log(`第 ${state.attempts} 次查询异常：${friendlyError(error)}`, 'error');
-      if (isSessionError(error)) {
+      if (isStructureError(error)) {
+        stopForPageMismatch({ message: friendlyError(error) });
+      } else if (isSessionError(error)) {
         handleFatal(error, '登录会话可能已失效');
       } else if (state.consecutiveErrors >= 5) {
         handleFatal(error, '连续 5 次查询异常，已为保护账号而暂停');
@@ -816,8 +1087,14 @@
   }
 
   function advanceCourseIndex() {
-    const count = activeCourseConfigs(state.config).length;
-    state.courseIndex = count > 0 ? (state.courseIndex + 1) % count : 0;
+    const courses = activeCourseConfigs(state.config);
+    const count = courses.length;
+    if (!count) { state.courseIndex = 0; return; }
+    for (let offset = 1; offset <= count; offset += 1) {
+      const candidate = (state.courseIndex + offset) % count;
+      if (!state.selectedCourseIds.has(courses[candidate].id)) { state.courseIndex = candidate; return; }
+    }
+    state.courseIndex = 0;
   }
 
   function getMainFrame() {
@@ -847,9 +1124,7 @@
   }
 
   function isFreeCoursePage(doc) {
-    let path = '';
-    try { path = doc.location.pathname; } catch (_) { return false; }
-    return /\/jsxsd\/xsxkkc\/comeInFawxk$/.test(path) && Boolean(doc.querySelector('#kcxx'));
+    return Boolean(doc?.querySelector?.('#kcxx') && findQueryButton(doc));
   }
 
   async function enterFreeCoursePage() {
@@ -888,6 +1163,57 @@
     } catch (_) {
       updatePageStatus('未就绪', false);
     }
+  }
+
+  function renderHealth(health) {
+    if (!ui || !health) return;
+    const items = {
+      page: [health.pageRecognized, health.pageRecognized ? '已识别' : '未识别'],
+      entry: [health.entryReady, health.entryReady ? '正常' : '未就绪'],
+      table: [health.tableReady, health.tableReady ? '已加载' : '未加载'],
+      native: [health.nativeReady, health.nativeReady ? '可用' : '不可用'],
+      bridge: [health.bridgeReady, health.bridgeReady ? '可用' : '不可用'],
+    };
+    Object.entries(items).forEach(([key, [ok, label]]) => {
+      const element = ui.healthItems[key];
+      if (!element) return;
+      element.className = `cau-cw-health-item ${ok ? 'ok' : health.pageRecognized ? 'warn' : 'bad'}`;
+      element.querySelector('b').textContent = label;
+    });
+    ui.healthSummary.textContent = health.healthy ? '全部正常' : health.message;
+    ui.healthSummary.style.color = health.healthy ? '#237b48' : '#a06d09';
+    state.health = health;
+  }
+
+  async function checkPageHealth() {
+    const health = {
+      pageRecognized: isTargetUrl(location.href), entryReady: false, tableReady: false,
+      nativeReady: false, bridgeReady: false, healthy: false, message: '页面结构未识别',
+    };
+    if (!health.pageRecognized) { renderHealth(health); return health; }
+    try {
+      const doc = getFrameDocument();
+      health.pageRecognized = !pageLooksLoggedOut(doc);
+      health.entryReady = isFreeCoursePage(doc);
+      health.tableReady = Boolean(doc.querySelector('#dataView'));
+      const bridge = ensurePageSelectionBridge(doc);
+      health.nativeReady = bridge.dataset.nativeReady === '1' || typeof doc.defaultView?.xsxkFun === 'function';
+      health.bridgeReady = Boolean(bridge);
+      health.healthy = health.pageRecognized && health.entryReady && health.tableReady && health.nativeReady && health.bridgeReady;
+      health.message = health.healthy ? '全部正常' : '部分组件未就绪';
+    } catch (error) {
+      health.message = `检查失败：${friendlyError(error)}`;
+    }
+    renderHealth(health);
+    return health;
+  }
+
+  function stopForPageMismatch(health) {
+    const detail = health?.message ? `（${health.message}）` : '';
+    const message = `页面结构未识别，已停止自动操作。请检查脚本版本或确认选课页面正确。${detail}`;
+    pauseMonitoring(message, { error: true, phase: PHASES.ERROR_PAUSED });
+    toast(message, true, 5200);
+    return message;
   }
 
   function setInputValue(element, value) {
@@ -986,6 +1312,19 @@
         selectLink,
       }];
     });
+
+    ui.panel.addEventListener('input', (event) => {
+      if (event.target === ui.arm) return;
+      markConfigDirty();
+      if (event.target.matches('[data-course-field="courseName"]')) {
+        const block = event.target.closest('.cau-cw-course-block');
+        const title = block?.querySelector('.cau-cw-course-title b');
+        const index = Number(block?.dataset.courseIndex || 0) + 1;
+        if (title) title.textContent = event.target.value.trim() ? `待选课程 ${index}（${event.target.value.trim()}）` : `待选课程 ${index}`;
+      }
+    });
+    ui.panel.addEventListener('change', (event) => { if (event.target !== ui.arm) markConfigDirty(); });
+    ui.panel.addEventListener('pointerleave', () => { if (state.configDirty) flushAutoSave(true); });
   }
 
   function rowMatches(row, config) {
@@ -1110,7 +1449,8 @@
       const bridge = document.getElementById(bridgeId);
       if (!bridge || bridge.dataset.installed === '1') return;
       bridge.dataset.installed = '1';
-      bridge.addEventListener(requestEvent, () => {
+      bridge.dataset.nativeReady = typeof window.xsxkFun === 'function' ? '1' : '0';
+      bridge.addEventListener(requestEvent, async () => {
         if (bridge.dataset.busy === '1') return;
         bridge.dataset.busy = '1';
         const token = bridge.dataset.token || '';
@@ -1124,15 +1464,20 @@
         const confirmations = [];
         const originalAlert = window.alert;
         const originalConfirm = window.confirm;
+        let lastDialogAt = Date.now();
         let error = '';
         try {
           if (!allowedRequired.test(jx0404id) || !allowedRequired.test(kcid) || !allowedOptional.test(cfbs)) {
             throw new Error('选课参数未通过安全校验');
           }
-          window.alert = (message) => messages.push(String(message ?? ''));
+          window.alert = (message) => {
+            messages.push(String(message ?? ''));
+            lastDialogAt = Date.now();
+          };
           if (mode === 'auto-confirm-all') {
             window.confirm = (message) => {
               confirmations.push(String(message ?? ''));
+              lastDialogAt = Date.now();
               return true;
             };
           }
@@ -1140,6 +1485,11 @@
             throw new Error('页面原生 xsxkFun 函数不存在');
           }
           window.xsxkFun(jx0404id, kcid, cfbs);
+          lastDialogAt = Date.now();
+          const startedAt = Date.now();
+          while (Date.now() - startedAt < 15000 && Date.now() - lastDialogAt < 2500) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
         } catch (caught) {
           error = caught && caught.message ? String(caught.message) : String(caught);
         } finally {
@@ -1216,11 +1566,14 @@
     let outcome;
 
     try {
+      const courseConfig = activeCourseConfigs(state.config)[state.courseIndex];
+      setPhase(PHASES.SUBMITTING, describeRow(target), { course: courseConfig });
       if (state.config.autoConfirmAllPrompts) {
         log('已按本次授权启用本次选课流程的全部“确定”弹窗自动确认。');
       } else {
         log('正在调用学校原生选课流程，请手动处理全部确认框。');
       }
+      setPhase(PHASES.WAITING_DIALOGS, '正在处理学校页面的确认与结果弹窗', { course: courseConfig });
       outcome = await invokeNativeSelection(doc, args, state.config.autoConfirmAllPrompts);
       outcome.confirmations.forEach((text) => {
         log(`已自动点击“确定”：${text}`);
@@ -1248,32 +1601,61 @@
     }
 
     const responseSaysSuccess = /选课成功|成功选上|操作成功|已选中|已经选择|已选过|重复选择/.test(combined);
+    const courseConfig = activeCourseConfigs(state.config)[state.courseIndex];
+    setPhase(PHASES.VERIFYING, '正在核对选课结果区域', { course: courseConfig });
     const verified = await verifySelected(target, responseSaysSuccess ? 3000 : 10000);
     if (verified || responseSaysSuccess) {
-      finishSuccess(`选课成功：${describeRow(target)}${combined ? `；系统消息：${combined}` : ''}`);
-      return 'success';
+      const stopped = finishSuccess(`选课成功：${describeRow(target)}${combined ? `；系统消息：${combined}` : ''}`, courseConfig);
+      return stopped ? 'success' : 'continue';
     }
 
     if (/已满|容量不足|没有余量|无课余量|余量不足|名额.*满|人数.*满/.test(combined)) {
+      setPhase(PHASES.SLOT_LOST, '提交时余量已被占用，将继续监控', { course: courseConfig });
+      setCourseStatus(courseConfig, '余量被抢走 · 等待重试', 'yellow');
       log('余量在提交时被其他人占用，将退避后继续监控。');
       ui.result.textContent = '提交时已满，继续监控';
       return 'retry';
     }
 
-    const message = combined || '页面没有给出可验证的成功结果；为避免重复提交，已暂停。请先查看“选课结果查看及退选”。';
-    pauseMonitoring(`选课结果不确定或不可重试：${message}`, { error: true });
-    importantNotice('选课助手已暂停', message);
-    return 'stop';
+    if (/冲突|限选|学分|未到选课时间|不允许|培养方案|不能选择|禁止/.test(combined)) {
+      const message = combined || '教务系统拒绝了本次选课。';
+      setCourseStatus(courseConfig, '教务规则拒绝 · 已暂停', 'red');
+      pauseMonitoring(`不可重试的选课结果：${message}`, { error: true, phase: PHASES.ERROR_PAUSED });
+      importantNotice('选课助手已暂停', message);
+      return 'stop';
+    }
+    const message = combined || '页面没有给出可验证的成功结果。';
+    setPhase(PHASES.UNCERTAIN, `${message} 将在下一轮前再次核对。`, { course: courseConfig, level: 'error' });
+    setCourseStatus(courseConfig, '结果不确定 · 将继续核对', 'red');
+    importantNotice('选课结果不确定', `${message} 助手将继续监控，并在再次提交前重新核对选课结果。`);
+    return 'retry';
   }
 
-  function finishSuccess(message) {
+  function finishSuccess(message, courseConfig) {
+    if (courseConfig?.id) state.selectedCourseIds.add(courseConfig.id);
+    setCourseStatus(courseConfig, '已选中', 'green');
     ui.result.textContent = '选课成功';
-    pauseMonitoring(message, { success: true });
+    const courses = activeCourseConfigs(state.config);
+    const continueAll = state.config.mode === 'multi' && state.config.successPolicy === 'continue-until-all-selected' && state.selectedCourseIds.size < courses.length;
+    if (continueAll) {
+      setPhase(PHASES.SUCCESS, message, { course: courseConfig, level: 'success' });
+      importantNotice('选课成功', message, true);
+      const remaining = courses.length - state.selectedCourseIds.size;
+      ui.result.textContent = `已成功 ${state.selectedCourseIds.size} 门，继续 ${remaining} 门`;
+      log(`已按“全部选中后停止”策略继续监控，剩余 ${remaining} 门。`, 'success');
+      return false;
+    }
+    pauseMonitoring(message, { success: true, phase: PHASES.SUCCESS });
     importantNotice('选课成功', message, true);
+    return true;
   }
 
   function isSessionError(error) {
     return /登录|会话|userAccount|跨域/.test(friendlyError(error));
+  }
+
+  function isStructureError(error) {
+    return /找不到|页面结构|内容框架|课程框架|课程输入框|查询按钮|课程表列|原生 xsxkFun|桥接/.test(friendlyError(error));
   }
 
   function friendlyError(error) {
@@ -1298,18 +1680,20 @@
     return new Date().toLocaleTimeString('zh-CN', { hour12: false });
   }
 
-  function log(message, level = '') {
+  function log(message, level = '', meta = {}) {
     if (!ui) return;
     const item = document.createElement('li');
     if (level) item.className = level;
-    item.textContent = `[${timeLabel()}] ${message}`;
+    const phase = meta.phase ? `[${PHASE_LABELS[meta.phase] || meta.phase}] ` : '';
+    const course = meta.course?.courseName ? `[${meta.course.courseName}] ` : '';
+    item.textContent = `[${timeLabel()}] ${phase}${course}${message}`;
     ui.log.appendChild(item);
     while (ui.log.children.length > 120) ui.log.firstElementChild.remove();
     ui.log.scrollTop = ui.log.scrollHeight;
   }
 
   let toastTimer = null;
-  function toast(message, isError = false) {
+  function toast(message, isError = false, durationMs = 3000) {
     document.getElementById(`${SCRIPT_ID}-toast`)?.remove();
     clearTimeout(toastTimer);
     const element = document.createElement('div');
@@ -1317,7 +1701,7 @@
     element.textContent = message;
     if (isError) element.style.background = '#a63d35';
     document.body.appendChild(element);
-    toastTimer = setTimeout(() => element.remove(), 4200);
+    toastTimer = setTimeout(() => element.remove(), durationMs);
   }
 
   function ensureAudioContext() {
@@ -1378,6 +1762,10 @@
     }
     createPanel();
     setInterval(updatePageStatus, 2500);
+    checkPageHealth();
+    setInterval(() => {
+      if (!state.inFlight) checkPageHealth();
+    }, 4000);
   }
 
   init();

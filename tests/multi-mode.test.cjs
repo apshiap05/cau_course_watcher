@@ -14,7 +14,7 @@ function loadTestApi(sourcePath) {
   const source = fs.readFileSync(sourcePath, 'utf8');
   const instrumented = source.replace(
     /\n\s*init\(\);\s*\n\}\)\(\);\s*$/,
-    '\n  globalThis.__multiModeTest = { DEFAULT_CONFIG, sanitizeConfig, activeCourseConfigs, getCourseControlState, advanceCourseIndex, state };\n})();',
+    '\n  globalThis.__multiModeTest = { DEFAULT_CONFIG, PHASES, sanitizeConfig, activeCourseConfigs, getCourseControlState, advanceCourseIndex, isTargetUrl, state };\n})();',
   );
   assert.notEqual(instrumented, source, `无法挂载测试接口：${sourcePath}`);
   const context = vm.createContext({
@@ -26,6 +26,7 @@ function loadTestApi(sourcePath) {
     clearTimeout,
     setInterval,
     clearInterval,
+    URL,
   });
   vm.runInContext(instrumented, context, { filename: sourcePath });
   return context.__multiModeTest;
@@ -46,6 +47,7 @@ for (const sourcePath of sources) {
   assert.equal(legacy.courses[0].teacher, '田野');
   assert.equal(legacy.courses[0].minRemaining, 2);
   assert.equal(legacy.courses[0].selectionStrategy, 'first');
+  assert.equal(legacy.successPolicy, 'stop-on-first', '旧配置必须迁移为任意一门成功后停止');
 
   const courses = Array.from({ length: 5 }, (_, index) => ({
     courseName: `课程${index + 1}`,
@@ -58,6 +60,13 @@ for (const sourcePath of sources) {
     Array.from(api.activeCourseConfigs(multi), (course) => course.courseName),
     ['课程1', '课程2', '课程3', '课程4'],
   );
+  const continueAll = api.sanitizeConfig({ ...multi, successPolicy: 'continue-until-all-selected' });
+  assert.equal(continueAll.successPolicy, 'continue-until-all-selected');
+  assert.equal(api.PHASES.VERIFYING, 'VERIFYING');
+
+  assert.equal(api.isTargetUrl('https://newjw.cau.edu.cn/jsxsd/xsxk'), true);
+  assert.equal(api.isTargetUrl('https://newjw.cau.edu.cn/jsxsd/xsxk/任意/路径?batch=changed#tab'), true);
+  assert.equal(api.isTargetUrl('https://newjw.cau.edu.cn/jsxsd/xsxkabc'), false);
 
   api.state.config = multi;
   api.state.courseIndex = 0;
@@ -67,6 +76,11 @@ for (const sourcePath of sources) {
     api.advanceCourseIndex();
   }
   assert.deepEqual(sequence, [0, 1, 2, 3, 0], '轮询顺序必须循环前进');
+  api.state.courseIndex = 0;
+  api.state.selectedCourseIds.add(multi.courses[1].id);
+  api.advanceCourseIndex();
+  assert.equal(api.state.courseIndex, 2, '继续全部课程策略必须跳过已经成功的课程');
+  api.state.selectedCourseIds.clear();
 
   const normal = api.sanitizeConfig({ ...multi, mode: 'normal' });
   assert.equal(api.activeCourseConfigs(normal).length, 1, '正常模式只能启用第一门课程');

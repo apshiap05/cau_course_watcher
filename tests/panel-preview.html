@@ -25,7 +25,8 @@
               showFullCourses: true,
               autoConfirmAllPrompts: true,
               desktopNotification: true,
-              sound: true
+              sound: true,
+              successPolicy: 'continue-until-all-selected'
             }
           }),
           set: async () => {}
@@ -51,6 +52,17 @@
         document.body.dataset.cauAddVisible = String(Boolean(addButton && visible(addButton)));
         document.body.dataset.cauVisibleCourseCount = String(courseBlocks.filter(visible).length);
         document.body.dataset.cauVisibleRemoveCount = String(removeButtons.filter(visible).length);
+        document.body.dataset.cauHealthItemCount = String(document.querySelectorAll('[data-health]').length);
+        document.body.dataset.cauCourseStatusCount = String(document.querySelectorAll('[data-course-status]').length);
+        document.body.dataset.cauStartModalHidden = String(document.querySelector('#cau-course-watcher-modal')?.hidden === true);
+        document.body.dataset.cauContinuePolicy = String(document.querySelector('#cau-cw-continue-all')?.checked === true);
+        document.body.dataset.cauContinuePolicyVisible = String(visible(document.querySelector('#cau-cw-continue-row')));
+        if (new URLSearchParams(window.location.search).get('modal') === '1') {
+          const modal = document.querySelector('#cau-course-watcher-modal');
+          const summary = document.querySelector('#cau-cw-confirm-summary');
+          summary.innerHTML = '<div><strong>模式：</strong>多选模式（2 门）</div><div><strong>1. 羽毛球</strong> · 最低余量 1<br><small>教师：田野；课序号：507</small></div><div><strong>2. 专业英语</strong> · 最低余量 1<br><small>教师：郝彦菊</small></div><div><strong>刷新：</strong>5 秒 + 0–900 ms 随机抖动</div><div><strong>成功策略：</strong>全部课程选中后停止</div><div><strong>弹窗：</strong>自动确认本次选课流程中的全部确认框</div><div><strong>页面：</strong>页面健康检查通过</div>';
+          modal.hidden = false;
+        }
       }, 250);
     </script>
   </body>
