@@ -30,7 +30,7 @@ const frameWindow = {
 };
 const frameDocument = {
   documentElement: {},
-  location: { pathname: '/jsxsd/xsxkkc/changed-entry' },
+  location: { pathname: '/jsxsd/xsxkkc/comeInFawxk' },
   querySelector(selector) {
     if (selector === '#kcxx' || selector === '#dataView') return {};
     return null;
@@ -80,6 +80,9 @@ vm.runInContext(source, context, { filename: sourcePath });
   assert.equal(health.tableReady, true);
   assert.equal(health.nativeReady, true);
   assert.equal(health.bridgeReady, true);
+  frameDocument.location.pathname = '/jsxsd/xsxkkc/comeInBxqjhxk';
+  const nonFreeHealth = context.__inspectPageHealth();
+  assert.equal(nonFreeHealth.entryReady, false, '非自由选课路由不得被识别为可查询入口');
   process.stdout.write('background selection smoke test: ok\n');
 })().catch((error) => {
   console.error(error);

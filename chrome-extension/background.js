@@ -128,10 +128,11 @@ function inspectPageHealthInMainWorld() {
   const hasCourseInput = Boolean(frameDocument?.querySelector?.('#kcxx'));
   const hasQueryButton = Boolean(frameDocument && [...frameDocument.querySelectorAll('input[type="button"], button')]
     .some((element) => String(element.value || element.textContent || '').replace(/\s+/g, '') === '查询'));
+  const freeCourseRoute = /\/jsxsd\/xsxkkc\/comeInFawxk\/?$/i.test(framePath);
   return {
     frameReady: Boolean(frameWindow && frameDocument?.documentElement),
     framePath,
-    entryReady: Boolean(hasCourseInput && hasQueryButton),
+    entryReady: Boolean(freeCourseRoute && hasCourseInput && hasQueryButton),
     tableReady: Boolean(frameDocument?.querySelector?.('#dataView')),
     nativeReady: typeof frameWindow?.xsxkFun === 'function',
     bridgeReady: true,

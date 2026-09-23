@@ -26,6 +26,9 @@ for (const [name, file] of sources) {
   assert.match(source, /field\('cau-cw-continue-row'\)\.hidden = !controls\.isMulti/, `${name} 正常模式必须隐藏多选成功策略`);
   assert.match(source, /结果不确定[\s\S]*return 'retry'/, `${name} 不确定结果必须提醒后继续`);
   assert.match(source, /state\.selectedCourseIds\.has/, `${name} 必须跳过已经成功的课程`);
+  assert.match(source, /function isFreeCoursePage\(doc\)[\s\S]*?\/jsxsd\\\/xsxkkc\\\/comeInFawxk\$\/i/, `${name} 必须通过自由选课实际路由确认页面已切换`);
+  assert.match(source, /const documents = \[PAGE\.document, frameDoc\]/, `${name} 必须同时检查主页面和选课框架中的自由选课入口`);
+  assert.match(source, /const link = findFreeCourseLink\(doc\)/, `${name} 必须从当前选课框架寻找自由选课入口`);
   if (name === 'Tampermonkey 脚本') {
     assert.match(source, /addEventListener\(requestEvent, async \(\) =>/, '油猴弹窗桥接必须覆盖异步回调');
     assert.match(source, /Date\.now\(\) - startedAt < 15000[\s\S]*Date\.now\(\) - lastDialogAt < 2500/, '油猴弹窗桥接必须等待弹窗安静后再恢复');

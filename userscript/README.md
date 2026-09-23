@@ -8,7 +8,7 @@
 2. 打开 [Raw 脚本地址](https://raw.githubusercontent.com/apshiap05/CAU-/main/userscript/cau-course-watcher.user.js)。如果 Tampermonkey 显示安装页，检查脚本名称和匹配域名后安装。
 3. 如果浏览器只显示源码，就复制全部内容，在 Tampermonkey 中选择“添加新脚本”，替换示例内容并保存。
 4. 登录中国农业大学教务系统，进入选课页面并刷新。
-5. 页面右侧应显示“选课余量监控助手 v1.4.0”。脚本匹配 `/jsxsd/xsxk` 本身及其下任意路径，不依赖固定选课批次参数。
+5. 页面右侧应显示“选课余量监控助手 v1.4.1”。脚本匹配 `/jsxsd/xsxk` 本身及其下任意路径，不依赖固定选课批次参数。
 
 更新时可以重新打开 Raw 地址；脚本元数据也包含同一地址作为 `@updateURL` 和 `@downloadURL`。
 

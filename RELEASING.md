@@ -31,7 +31,7 @@
 9. Release 至少附带：
    - `CAU-Course-Watcher-Chrome-vX.Y.Z.zip`
    - `cau-course-watcher-vX.Y.Z.user.js`
-10. Release Notes 应包含主要变化、安装/升级方法、配置迁移、测试结果和安全边界。
+10. Release Notes 只写本次版本的实际更新内容；不写安装/升级方法、配置迁移、测试结果、安全边界或其他与更新内容无关的项目。
 11. 发布后核对 Release 标签、目标提交、两个附件名称和下载地址，并确认仓库工作区干净、`main` 与 `origin/main` 同步。
 
 ## 历史版本

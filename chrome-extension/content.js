@@ -454,7 +454,7 @@
     panel.id = `${SCRIPT_ID}-panel`;
     panel.innerHTML = `
       <div class="cau-cw-header">
-        <div class="cau-cw-title">选课余量监控助手 <small>Chrome v1.4.0</small></div>
+        <div class="cau-cw-title">选课余量监控助手 <small>Chrome v1.4.1</small></div>
         <span id="cau-cw-run-state" class="cau-cw-paused">已停止</span>
         <button id="cau-cw-collapse" class="cau-cw-icon-btn" title="收起/展开">—</button>
       </div>
@@ -1216,7 +1216,30 @@
   }
 
   function isFreeCoursePage(doc) {
-    return Boolean(doc?.querySelector?.('#kcxx') && findQueryButton(doc));
+    let path = '';
+    try { path = String(doc?.location?.pathname || '').replace(/\/+$/, ''); } catch (_) { return false; }
+    return /\/jsxsd\/xsxkkc\/comeInFawxk$/i.test(path) &&
+      Boolean(doc?.querySelector?.('#kcxx') && findQueryButton(doc));
+  }
+
+  function findFreeCourseLink(frameDoc) {
+    const documents = [PAGE.document, frameDoc].filter(Boolean);
+    const candidates = documents.flatMap((doc) => [...doc.querySelectorAll('a[href], a[onclick], button[onclick]')]);
+    return candidates.find((link) => {
+      if (link.disabled || link.getAttribute('aria-disabled') === 'true' || !isElementVisible(link)) return false;
+      const source = `${link.getAttribute('href') || ''} ${link.getAttribute('onclick') || ''}`;
+      const label = normalize(link.textContent || link.value || '');
+      return /comeInFawxk/i.test(source) || label === '自由选课' || label.includes('自由选课');
+    }) || null;
+  }
+
+  function activateFreeCourseLink(link) {
+    if (typeof link?.click === 'function') {
+      link.click();
+      return;
+    }
+    const ownerWindow = link?.ownerDocument?.defaultView || PAGE;
+    link?.dispatchEvent?.(new ownerWindow.MouseEvent('click', { bubbles: true, cancelable: true, view: ownerWindow }));
   }
 
   async function enterFreeCoursePage() {
@@ -1227,10 +1250,10 @@
       return doc;
     }
 
-    const link = document.querySelector('a[href*="comeInFawxk"]');
+    const link = findFreeCourseLink(doc);
     if (!link) throw new Error('找不到顶部“自由选课”入口。');
     updatePageStatus('正在切换', false);
-    link.click();
+    activateFreeCourseLink(link);
     doc = await waitUntil(() => {
       const candidate = getFrameDocument();
       if (pageLooksLoggedOut(candidate)) throw new Error('切换页面时登录会话失效。');
