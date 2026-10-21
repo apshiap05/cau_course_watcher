@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         中国农业大学教务选课余量监控助手
 // @namespace    local.cau.course-watcher
-// @version      1.5.0
+// @version      1.5.1
 // @description  支持单课程或最多四门课程轮询，发现余量后使用页面原生流程选课。
 // @author       apshiap05
 // @license      Apache-2.0
@@ -452,12 +452,11 @@
   animation: cau-glass-arrive .55s cubic-bezier(.2,.75,.25,1) both;
 }
 #cau-course-watcher-panel {
-  width: 480px; scrollbar-width: thin; scrollbar-color: rgba(46,119,71,.32) transparent;
-  color: #203129; overscroll-behavior: contain; scroll-padding-top: 76px;
+  display: flex; flex-direction: column; overflow: hidden;
+  width: 480px; color: #203129;
 }
-#cau-course-watcher-panel::-webkit-scrollbar { width: 5px; }
-#cau-course-watcher-panel::-webkit-scrollbar-thumb { background: rgba(46,119,71,.32); border-radius: 9px; }
 #cau-course-watcher-panel .cau-cw-header {
+  position: relative; top: auto; flex-shrink: 0;
   padding: 17px 18px; border-radius: 23px 23px 0 0;
   background: radial-gradient(ellipse at var(--glass-x) 0, rgba(207,255,217,.2), transparent 75%),
     linear-gradient(125deg, rgba(31,116,67,.9), rgba(52,138,85,.7));
@@ -467,7 +466,17 @@
 }
 #cau-course-watcher-panel .cau-cw-title { letter-spacing: .015em; }
 #cau-course-watcher-panel .cau-cw-title small { font-size: 10px; font-weight: 500; opacity: .85; }
-#cau-course-watcher-panel .cau-cw-body { padding: 16px; }
+#cau-course-watcher-panel .cau-cw-body {
+  min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 16px;
+  overscroll-behavior: contain; scroll-padding-top: 16px;
+  scrollbar-width: thin; scrollbar-color: rgba(46,119,71,.32) transparent;
+}
+#cau-course-watcher-panel .cau-cw-body::-webkit-scrollbar { width: 5px; }
+#cau-course-watcher-panel .cau-cw-body::-webkit-scrollbar-thumb { background: rgba(46,119,71,.32); border-radius: 9px; }
+#cau-course-watcher-panel .cau-cw-body::-webkit-scrollbar-button { display: none; height: 0; }
+@supports selector(::-webkit-scrollbar) {
+  #cau-course-watcher-panel .cau-cw-body { scrollbar-width: auto; scrollbar-color: auto; }
+}
 #cau-course-watcher-panel .cau-cw-tabs {
   position: relative; isolation: isolate; gap: 6px; padding: 5px; border-radius: 16px;
   background: rgba(213,235,220,.35); border: 1px solid rgba(255,255,255,.7);
@@ -586,7 +595,7 @@
 @keyframes cau-glass-toast { from { opacity: 0; translate: 0 -8px; } to { opacity: 1; translate: 0 0; } }
 @keyframes cau-glass-ripple { to { transform: scale(24); opacity: 0; } }
 @media (max-width: 720px) {
-  #cau-course-watcher-panel { width: calc(100vw - 16px); border-radius: 20px; }
+  #cau-course-watcher-panel { left: 8px; right: 8px; width: auto; border-radius: 20px; }
   #cau-course-watcher-panel .cau-cw-header { padding: 13px; border-radius: 19px 19px 0 0; }
   #cau-course-watcher-panel .cau-cw-body { padding: 10px; }
   #cau-course-watcher-panel .cau-cw-title { font-size: 13px; }
@@ -851,7 +860,7 @@
     panel.id = `${SCRIPT_ID}-panel`;
     panel.innerHTML = `
       <div class="cau-cw-header">
-        <div class="cau-cw-title">选课余量监控助手 <small>v1.5.0</small></div>
+        <div class="cau-cw-title">选课余量监控助手 <small>v1.5.1</small></div>
         <span id="cau-cw-run-state" class="cau-cw-paused">已停止</span>
         <button id="cau-cw-collapse" class="cau-cw-icon-btn" title="收起/展开">—</button>
       </div>

@@ -6,7 +6,7 @@ const { execFileSync } = require('node:child_process');
 fs.mkdirSync('.preview', { recursive: true });
 const base = 'file:///' + path.resolve('tests/panel-preview.html').replace(/\\/g,'/');
 (async () => {
- const browser = await chromium.launch({channel:'chrome',headless:true});
+ const browser = await chromium.launch({channel:'chrome',headless:true,ignoreDefaultArgs:['--hide-scrollbars']});
  const errors = [];
  for (const variant of ['chrome','userscript']) {
   const page = await browser.newPage({viewport:{width:1440,height:1080}});
@@ -17,6 +17,32 @@ const base = 'file:///' + path.resolve('tests/panel-preview.html').replace(/\\/g
   await page.waitForTimeout(650);
   await page.screenshot({path:'.preview/liquid-glass-'+variant+'.png'});
   const panel = page.locator('#cau-course-watcher-panel');
+  const verifyContentScroll = async () => {
+    const geometry = await panel.evaluate(e => {
+      const body = e.querySelector('.cau-cw-body');
+      const header = e.querySelector('.cau-cw-header');
+      const before = header.getBoundingClientRect();
+      body.scrollTop = 200;
+      const after = header.getBoundingClientRect();
+      return {
+        rootScroll: e.scrollHeight - e.clientHeight,
+        bodyScroll: body.scrollHeight - body.clientHeight,
+        scrollTop: body.scrollTop,
+        headerTop: before.top - after.top,
+        bodyTop: body.getBoundingClientRect().top,
+        headerBottom: after.bottom,
+        headerRight: after.right,
+        panelRight: e.getBoundingClientRect().right,
+      };
+    });
+    assert.ok(geometry.rootScroll <= 1, 'outer glass shell must not scroll');
+    assert.ok(geometry.bodyScroll > 0 && geometry.scrollTop > 0, 'body must own vertical scrolling');
+    assert.equal(geometry.headerTop, 0, 'header must stay fixed while body scrolls');
+    assert.ok(geometry.bodyTop >= geometry.headerBottom - 1, 'scrollbar must begin below header');
+    assert.ok(geometry.panelRight - geometry.headerRight <= 1.1, 'header must fill shell width');
+    await page.locator('.cau-cw-body').evaluate(e => { e.scrollTop = 0; });
+  };
+  await verifyContentScroll();
   assert.equal(await panel.getAttribute('data-glass-optics'),'refraction');
   console.log(execFileSync(process.execPath,['tests/liquid-glass-render.test.cjs'],{input:await page.content(),encoding:'utf8'}).trim());
   for (const mode of ['multi','normal']) {
@@ -91,6 +117,7 @@ const base = 'file:///' + path.resolve('tests/panel-preview.html').replace(/\\/g
     await page.waitForTimeout(600);
     const dims=await panel.evaluate(e=>({width:e.clientWidth,scroll:e.scrollWidth,left:e.getBoundingClientRect().left,right:e.getBoundingClientRect().right}));
     assert.ok(dims.left>=0 && dims.right<=width && dims.scroll<=dims.width+1,JSON.stringify(dims));
+    await verifyContentScroll();
     if(width===390) await page.screenshot({path:'.preview/liquid-glass-mobile-'+variant+'.png'});
     await page.evaluate(()=>{document.querySelector('#cau-course-watcher-modal').hidden=false});
     const dialogBox=await page.locator('.cau-cw-dialog').boundingBox();
