@@ -5,15 +5,17 @@
     <title>多选模式面板预览</title>
     <style>
       body { min-height: 1400px; margin: 0; background: linear-gradient(#3a884d 0 92px, #f3f6f4 92px); font-family: "Microsoft YaHei", sans-serif; }
-      .mock-page { margin: 125px 500px 0 25px; padding: 24px; border: 1px solid #cad7ce; background: white; color: #526158; }
+      .mock-page { margin: 125px 25px 0; padding: 24px; border: 1px solid #cad7ce; background: white; color: #526158; }
+      table { width: 100%; border-collapse: collapse; font-size: 14px; }
+      th, td { padding: 18px; border-bottom: 1px solid #d9e4dc; text-align: left; }
+      th { background: #e1eee4; color: #285f39; }
+      tbody tr:nth-child(even) { background: #eff6f1; }
+      .open { color: #16743b; background: #d6efdf; border-radius: 6px; padding: 5px 12px; }
+      .full { color: #966f15; background: #fff0c7; border-radius: 6px; padding: 5px 12px; }
     </style>
     <script>
       const previewMode = new URLSearchParams(window.location.search).get('mode') === 'normal' ? 'normal' : 'multi';
-      window.chrome = window.chrome || {};
-      window.chrome.storage = {
-        local: {
-          get: async () => ({
-            'cau-course-watcher:chrome-config:v1': {
+      const previewConfig = {
               mode: previewMode,
               courses: [
                 { courseName: '羽毛球', teacher: '田野', minRemaining: 1, selectionStrategy: 'maxRemaining' },
@@ -27,21 +29,43 @@
               desktopNotification: true,
               sound: true,
               successPolicy: 'continue-until-all-selected'
-            }
-          }),
+      };
+      window.chrome = window.chrome || {};
+      window.chrome.storage = {
+        local: {
+          get: async () => ({ 'cau-course-watcher:chrome-config:v1': previewConfig }),
           set: async () => {}
         }
       };
+      // The userscript uses the same offline config, without a Tampermonkey dependency.
+      window.GM_getValue = () => previewConfig;
+      window.GM_setValue = async () => {};
     </script>
   </head>
   <body>
     <div class="mock-page">
       <h1>教务选课页面占位预览</h1>
       <p>本文件只用于检查扩展配置面板布局，不会访问教务系统或执行查询。</p>
+      <table aria-label="离线示例课程">
+        <thead><tr><th>课程名称</th><th>课程编号</th><th>任课教师</th><th>上课地点</th><th>选课状态</th><th>剩余容量</th></tr></thead>
+        <tbody>
+          <tr><td>羽毛球（1）</td><td>70013084</td><td>示例教师</td><td>东校区体育馆</td><td><span class="open">可选</span></td><td>3</td></tr>
+          <tr><td>大学英语</td><td>70011025</td><td>示例教师</td><td>第一教学楼</td><td><span class="full">已满</span></td><td>0</td></tr>
+          <tr><td>农业与自然</td><td>70021003</td><td>示例教师</td><td>第二教学楼</td><td><span class="open">可选</span></td><td>12</td></tr>
+          <tr><td>计算机基础</td><td>70021016</td><td>示例教师</td><td>计算中心</td><td><span class="full">已满</span></td><td>0</td></tr>
+          <tr><td>艺术与生活</td><td>70032001</td><td>示例教师</td><td>第一教学楼</td><td><span class="open">可选</span></td><td>7</td></tr>
+          <tr><td>专业英语</td><td>70021019</td><td>示例教师</td><td>第二教学楼</td><td><span class="full">已满</span></td><td>0</td></tr>
+        </tbody>
+      </table>
     </div>
-    <script src="../chrome-extension/content.js"></script>
     <script>
-      setTimeout(() => {
+      const distributionScript = document.createElement('script');
+      distributionScript.src = new URLSearchParams(location.search).get('script') === 'userscript'
+        ? '../userscript/cau-course-watcher.user.js' : '../chrome-extension/content.js';
+      document.body.appendChild(distributionScript);
+    </script>
+    <script>
+      distributionScript.addEventListener('load', () => setTimeout(() => {
         const panel = document.querySelector('#cau-course-watcher-panel');
         const addButton = document.querySelector('#cau-cw-add-course');
         const removeButtons = [...document.querySelectorAll('[data-remove-course]')];
@@ -57,13 +81,17 @@
         document.body.dataset.cauStartModalHidden = String(document.querySelector('#cau-course-watcher-modal')?.hidden === true);
         document.body.dataset.cauContinuePolicy = String(document.querySelector('#cau-cw-continue-all')?.checked === true);
         document.body.dataset.cauContinuePolicyVisible = String(visible(document.querySelector('#cau-cw-continue-row')));
+        document.body.dataset.glassReady = panel?.dataset.glassReady || 'false';
+        document.body.dataset.glassOptics = panel?.dataset.glassOptics || 'missing';
+        document.body.dataset.glassFilterCount = String(document.querySelectorAll('filter[id*="-refraction-"]').length);
+        document.body.dataset.glassMapReady = String(Boolean(document.querySelector('feImage')?.getAttribute('href')?.startsWith('data:image/png')));
         if (new URLSearchParams(window.location.search).get('modal') === '1') {
           const modal = document.querySelector('#cau-course-watcher-modal');
           const summary = document.querySelector('#cau-cw-confirm-summary');
           summary.innerHTML = '<div><strong>模式：</strong>多选模式（2 门）</div><div><strong>1. 羽毛球</strong> · 最低余量 1<br><small>教师：田野；课序号：507</small></div><div><strong>2. 专业英语</strong> · 最低余量 1<br><small>教师：郝彦菊</small></div><div><strong>刷新：</strong>5 秒 + 0–900 ms 随机抖动</div><div><strong>成功策略：</strong>全部课程选中后停止</div><div><strong>弹窗：</strong>自动确认本次选课流程中的全部确认框</div><div><strong>页面：</strong>页面健康检查通过</div>';
           modal.hidden = false;
         }
-      }, 250);
+      }, 250));
     </script>
   </body>
 </html>

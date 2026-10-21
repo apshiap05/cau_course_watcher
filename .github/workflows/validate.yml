@@ -24,10 +24,14 @@ jobs:
           node --check chrome-extension/content.js
           node --check chrome-extension/background.js
           node --check chrome-extension/popup.js
+          node --check chrome-extension/liquid-glass.js
           node --check userscript/cau-course-watcher.user.js
 
       - name: Parse Chrome manifest
         run: node -e "JSON.parse(require('node:fs').readFileSync('chrome-extension/manifest.json', 'utf8'))"
+
+      - name: Check shared UI distributions
+        run: node tools/build-ui.cjs --check
 
       - name: Run smoke test
         run: |
@@ -44,3 +48,5 @@ jobs:
           google-chrome --headless=new --no-sandbox --disable-gpu --virtual-time-budget=1000 --dump-dom "file://$PWD/tests/panel-preview.html?mode=normal" | node tests/panel-render.test.cjs normal
           google-chrome --headless=new --no-sandbox --disable-gpu --virtual-time-budget=1000 --dump-dom "file://$PWD/tests/panel-preview.html?mode=multi" | node tests/panel-render.test.cjs multi
           google-chrome --headless=new --no-sandbox --disable-gpu --virtual-time-budget=1600 --dump-dom "file://$PWD/tests/panel-interaction-preview.html" | node tests/panel-interaction.test.cjs
+          google-chrome --headless=new --no-sandbox --disable-gpu --virtual-time-budget=1600 --dump-dom "file://$PWD/tests/panel-preview.html?mode=multi" | node tests/liquid-glass-render.test.cjs
+          google-chrome --headless=new --no-sandbox --disable-gpu --virtual-time-budget=1600 --dump-dom "file://$PWD/tests/panel-preview.html?mode=multi&script=userscript" | node tests/liquid-glass-render.test.cjs

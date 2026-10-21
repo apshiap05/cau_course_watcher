@@ -443,9 +443,416 @@
       @media (max-width: 720px) {
         #${SCRIPT_ID}-panel { inset: 8px 8px auto auto; width: calc(100vw - 16px); max-height: calc(100vh - 16px); }
       }
+
+/* BEGIN SHARED GLASS CSS */
+/* Native text above a refracting backdrop. Tints retain the original CAU green. */
+#cau-course-watcher-modal, #cau-course-watcher-modal * { box-sizing: border-box; }
+#cau-course-watcher-panel,
+#cau-course-watcher-modal .cau-cw-dialog {
+  --glass-x: 50%; --glass-y: 0px; --glass-light: 0;
+  --glass-optics: blur(0px);
+  background: radial-gradient(ellipse 340px 260px at var(--glass-x) var(--glass-y), rgba(255,255,255,calc(.06 + var(--glass-light) * .28)), transparent 75%),
+    linear-gradient(145deg, rgba(247,255,250,.62), rgba(236,248,240,.32) 48%, rgba(245,255,248,.48));
+  border: 1px solid rgba(255,255,255,.76);
+  border-radius: 24px;
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  backdrop-filter: var(--glass-optics) blur(8px) saturate(1.2);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.95), inset 1px 0 0 rgba(255,226,235,.4), inset -1px 0 0 rgba(213,244,255,.4),
+    inset 0 -1px 0 rgba(75,132,94,.16), 0 24px 64px rgba(16,65,36,.19), 0 4px 14px rgba(16,65,36,.08);
+  animation: cau-glass-arrive .55s cubic-bezier(.2,.75,.25,1) both;
+}
+#cau-course-watcher-panel {
+  width: 480px; scrollbar-width: thin; scrollbar-color: rgba(46,119,71,.32) transparent;
+  color: #203129; overscroll-behavior: contain; scroll-padding-top: 76px;
+}
+#cau-course-watcher-panel::-webkit-scrollbar { width: 5px; }
+#cau-course-watcher-panel::-webkit-scrollbar-thumb { background: rgba(46,119,71,.32); border-radius: 9px; }
+#cau-course-watcher-panel .cau-cw-header {
+  padding: 17px 18px; border-radius: 23px 23px 0 0;
+  background: radial-gradient(ellipse at var(--glass-x) 0, rgba(207,255,217,.2), transparent 75%),
+    linear-gradient(125deg, rgba(31,116,67,.9), rgba(52,138,85,.7));
+  border-bottom: 1px solid rgba(255,255,255,.45);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 5px 18px rgba(25,94,49,.1);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+}
+#cau-course-watcher-panel .cau-cw-title { letter-spacing: .015em; }
+#cau-course-watcher-panel .cau-cw-title small { font-size: 10px; font-weight: 500; opacity: .85; }
+#cau-course-watcher-panel .cau-cw-body { padding: 16px; }
+#cau-course-watcher-panel .cau-cw-tabs {
+  position: relative; isolation: isolate; gap: 6px; padding: 5px; border-radius: 16px;
+  background: rgba(213,235,220,.35); border: 1px solid rgba(255,255,255,.7);
+  box-shadow: inset 0 1px 4px rgba(22,75,41,.07);
+}
+#cau-course-watcher-panel .cau-cw-mode-tab {
+  position: relative; z-index: 1; min-height: 37px; border-radius: 11px;
+  transition: color .25s, box-shadow .25s, translate .4s cubic-bezier(.2,.9,.2,1.3);
+}
+#cau-course-watcher-panel .cau-cw-tabs::before {
+  content: ''; position: absolute; z-index: 0; top: 5px; bottom: 5px; left: 5px;
+  width: calc(50% - 8px); border-radius: 11px;
+  background: linear-gradient(135deg, rgba(37,130,75,.92), rgba(55,147,91,.74));
+  border: 1px solid rgba(255,255,255,.54);
+  box-shadow: 0 3px 9px rgba(27,102,53,.18), inset 0 1px 0 rgba(255,255,255,.35);
+  transition: transform .48s cubic-bezier(.2,.85,.25,1.15);
+}
+#cau-course-watcher-panel[data-mode="multi"] .cau-cw-tabs::before { transform: translateX(calc(100% + 6px)); }
+#cau-course-watcher-panel .cau-cw-mode-tab.active { background: transparent; }
+#cau-course-watcher-panel :is(.cau-cw-health,.cau-cw-status,.cau-cw-section) {
+  position: relative; border: 1px solid rgba(255,255,255,.72); border-radius: 17px;
+  background: linear-gradient(135deg, rgba(255,255,255,.42), rgba(240,252,244,.18));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.76), 0 3px 10px rgba(21,85,43,.035);
+}
+#cau-course-watcher-panel .cau-cw-section { margin: 12px 0; padding: 13px; }
+#cau-course-watcher-panel .cau-cw-health { padding: 12px; }
+#cau-course-watcher-panel .cau-cw-status { padding: 12px; font-size: 12px; }
+#cau-course-watcher-panel .cau-cw-section-heading { border-color: rgba(74,134,94,.14); }
+#cau-course-watcher-panel .cau-cw-section-title { letter-spacing: .03em; }
+#cau-course-watcher-panel .cau-cw-health-item {
+  background: rgba(231,245,235,.42); border: 1px solid rgba(255,255,255,.36); border-radius: 10px;
+}
+#cau-course-watcher-panel .cau-cw-health-summary { color: #526959; }
+#cau-course-watcher-panel .cau-cw-course-block {
+  background: rgba(246,255,249,.19); border-color: rgba(107,163,124,.3); border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.8);
+  transition: border-color .25s, box-shadow .25s, background .25s;
+  animation: cau-glass-arrive .4s cubic-bezier(.2,.75,.25,1) both;
+}
+#cau-course-watcher-panel .cau-cw-course-block:hover {
+  border-color: rgba(62,145,89,.52); background: rgba(246,255,249,.29);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.85), 0 5px 16px rgba(35,108,57,.06);
+}
+#cau-course-watcher-panel .cau-cw-course-block:focus-within {
+  border-color: rgba(45,140,82,.6); box-shadow: 0 0 0 3px rgba(45,140,82,.08);
+}
+#cau-course-watcher-panel :is(input[type="text"],input[type="number"],select) {
+  min-width: 0; height: 35px; border-radius: 9px; background: rgba(255,255,255,.42);
+  border: 1px solid rgba(89,142,106,.32); box-shadow: inset 0 1px 3px rgba(31,81,45,.035), 0 1px 0 rgba(255,255,255,.6);
+  transition: background .2s, border-color .2s, box-shadow .2s;
+}
+#cau-course-watcher-panel input::placeholder { color: #667b6c; }
+#cau-course-watcher-panel select option { background: #f4faf6; color: #203129; }
+#cau-course-watcher-panel :is(input,select):focus {
+  background: rgba(255,255,255,.78); border-color: #2d8c52; box-shadow: 0 0 0 3px rgba(45,140,82,.14);
+}
+#cau-course-watcher-panel input[type="checkbox"] { accent-color: #25824b; width: 15px; height: 15px; flex: 0 0 15px; }
+#cau-course-watcher-panel .cau-cw-check { gap: 8px; line-height: 1.6; }
+#cau-course-watcher-panel .cau-cw-arm {
+  padding: 11px; background: rgba(255,242,194,.58); border-color: rgba(199,161,53,.4); border-radius: 12px;
+}
+#cau-course-watcher-panel button,
+#cau-course-watcher-modal button {
+  position: relative; overflow: hidden; isolation: isolate;
+  transition: background .2s, box-shadow .2s, transform .22s, translate .4s cubic-bezier(.2,.9,.2,1.3);
+}
+#cau-course-watcher-panel button::after,
+#cau-course-watcher-modal button::after {
+  content: ''; pointer-events: none; position: absolute; inset: 0; border-radius: inherit;
+  background: linear-gradient(150deg, rgba(255,255,255,.24), transparent 48%, rgba(255,255,255,.08));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.4);
+}
+#cau-course-watcher-panel :is(.cau-cw-btn,.cau-cw-add-btn,.cau-cw-small-btn),
+#cau-course-watcher-modal button {
+  border: 1px solid rgba(255,255,255,.65); box-shadow: 0 3px 8px rgba(30,100,52,.08);
+}
+#cau-course-watcher-panel .cau-cw-btn { min-height: 38px; border-radius: 12px; background: rgba(40,126,74,.9); }
+#cau-course-watcher-panel .cau-cw-btn-secondary,
+#cau-course-watcher-modal button { color: #245538; background: rgba(216,240,224,.62); }
+#cau-course-watcher-panel .cau-cw-btn-danger { background: rgba(182,75,66,.88); }
+#cau-course-watcher-panel .cau-cw-add-btn { background: rgba(227,247,234,.55); }
+#cau-course-watcher-panel .cau-cw-small-btn { border-radius: 10px; background: rgba(227,247,234,.5); }
+#cau-course-watcher-panel .cau-cw-small-btn.cau-cw-remove { background: rgba(255,229,223,.6); }
+#cau-course-watcher-panel .cau-cw-icon-btn { border-radius: 9px; }
+#cau-course-watcher-panel button:hover:not(:disabled),
+#cau-course-watcher-modal button:hover:not(:disabled) { box-shadow: 0 5px 14px rgba(31,116,67,.16), inset 0 1px 0 rgba(255,255,255,.65); }
+#cau-course-watcher-panel button:active:not(:disabled),
+#cau-course-watcher-modal button:active:not(:disabled) { transform: translateY(1px) scale(.975); }
+#cau-course-watcher-panel :is(button,input,select):focus-visible,
+#cau-course-watcher-modal button:focus-visible { outline: 2px solid #25824b; outline-offset: 3px; }
+#cau-course-watcher-panel .cau-cw-icon-btn:focus-visible { outline-color: white; }
+#cau-course-watcher-panel .cau-cw-log { background: rgba(234,246,237,.3); border-color: rgba(103,157,118,.24); border-radius: 11px; }
+#cau-course-watcher-panel :is(.cau-cw-hint,.cau-cw-save-note) { color: #4c6353; }
+#cau-course-watcher-panel .cau-cw-course-state { background: rgba(221,234,224,.7); }
+#cau-course-watcher-panel .cau-cw-course-state.yellow { background: rgba(255,238,184,.8); }
+#cau-course-watcher-panel .cau-cw-course-state.red { background: rgba(253,220,215,.8); }
+#cau-course-watcher-panel .cau-cw-course-state.green { background: rgba(203,240,215,.8); }
+#cau-course-watcher-modal { background: rgba(16,45,27,.16); -webkit-backdrop-filter: none; backdrop-filter: none; }
+#cau-course-watcher-modal .cau-cw-dialog { position: relative; padding: 26px; background-color: rgba(242,253,245,.34); }
+#cau-course-watcher-modal .cau-cw-confirm-summary {
+  background: rgba(230,246,235,.46); border: 1px solid rgba(255,255,255,.68); border-radius: 14px;
+}
+#cau-course-watcher-modal button[data-confirm] { background: rgba(38,123,73,.9); }
+#cau-course-watcher-toast {
+  background: rgba(36,109,67,.86); border: 1px solid rgba(255,255,255,.6); border-radius: 16px;
+  -webkit-backdrop-filter: blur(12px) saturate(1.2); backdrop-filter: blur(12px) saturate(1.2);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 12px 30px rgba(15,62,31,.2);
+  animation: cau-glass-toast .35s ease-out both;
+}
+.cau-cw-glass-ripple {
+  pointer-events: none; position: absolute; z-index: 2; width: 12px; height: 12px;
+  margin: -6px; border-radius: 50%; background: rgba(255,255,255,.4);
+  animation: cau-glass-ripple .65s ease-out forwards;
+}
+@keyframes cau-glass-arrive { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes cau-glass-toast { from { opacity: 0; translate: 0 -8px; } to { opacity: 1; translate: 0 0; } }
+@keyframes cau-glass-ripple { to { transform: scale(24); opacity: 0; } }
+@media (max-width: 720px) {
+  #cau-course-watcher-panel { width: calc(100vw - 16px); border-radius: 20px; }
+  #cau-course-watcher-panel .cau-cw-header { padding: 13px; border-radius: 19px 19px 0 0; }
+  #cau-course-watcher-panel .cau-cw-body { padding: 10px; }
+  #cau-course-watcher-panel .cau-cw-title { font-size: 13px; }
+  #cau-course-watcher-panel .cau-cw-title small { display: block; margin-left: 0; }
+  #cau-course-watcher-panel .cau-cw-course-state { max-width: 130px; }
+  #cau-course-watcher-modal { padding: 12px; }
+  #cau-course-watcher-modal .cau-cw-dialog { padding: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #cau-course-watcher-panel, #cau-course-watcher-panel *,
+  #cau-course-watcher-panel *::before, #cau-course-watcher-panel *::after,
+  #cau-course-watcher-modal *, #cau-course-watcher-toast { animation: none !important; transition: none !important; }
+  #cau-course-watcher-panel button, #cau-course-watcher-modal button { translate: none !important; transform: none !important; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  #cau-course-watcher-panel, #cau-course-watcher-modal .cau-cw-dialog { background: #f2f9f4; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  #cau-course-watcher-panel .cau-cw-header { background: #25824b; }
+}
+@supports not (backdrop-filter: blur(1px)) {
+  #cau-course-watcher-panel, #cau-course-watcher-modal .cau-cw-dialog { background: rgba(242,249,244,.96); }
+}
+@media (forced-colors: active) {
+  #cau-course-watcher-panel, #cau-course-watcher-modal .cau-cw-dialog { background: Canvas; color: CanvasText; border-color: CanvasText; backdrop-filter: none; }
+  #cau-course-watcher-panel button, #cau-course-watcher-modal button { border: 1px solid ButtonText; }
+  #cau-course-watcher-panel .cau-cw-tabs::before { background: Highlight; }
+  #cau-course-watcher-panel .cau-cw-mode-tab.active { color: HighlightText; }
+}
+/* END SHARED GLASS CSS */
     `;
     document.documentElement.appendChild(style);
   }
+
+  // BEGIN SHARED GLASS ENGINE
+  // Shared native-DOM material. Inlined into both distributions by tools/build-ui.cjs.
+  // Inspired by the edge optics and layered interaction in the projects credited in ui/README.md.
+  function installLiquidGlass(panel, modal = null) {
+    if (!panel || panel.dataset.glassReady) return;
+    panel.dataset.glassReady = 'true';
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const reducedTransparency = window.matchMedia('(prefers-reduced-transparency: reduce)');
+    const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('width', '0');
+    svg.setAttribute('height', '0');
+    svg.style.cssText = 'position:fixed;pointer-events:none;overflow:hidden';
+    svg.id = `${panel.id}-optics`;
+    const defs = document.createElementNS(ns, 'defs');
+    svg.appendChild(defs);
+    document.documentElement.appendChild(svg);
+    const surfaces = [panel, modal?.querySelector('.cau-cw-dialog')].filter(Boolean);
+    const entries = [];
+    const removers = [];
+    let suspended = document.hidden;
+    let disposed = false;
+    const listen = (target, name, handler, options) => {
+      target.addEventListener(name, handler, options);
+      removers.push(() => target.removeEventListener(name, handler, options));
+    };
+    // SVG backdrop displacement is supported by Chromium. Keep a plain blur in other engines.
+    const refracts = /Chrome|Chromium|Edg\//.test(navigator.userAgent)
+      && window.CSS?.supports('backdrop-filter', 'url("#glass")');
+
+    function reset(entry) {
+      cancelAnimationFrame(entry.frame);
+      entry.frame = 0;
+      entry.active = false;
+      entry.surface.style.setProperty('--glass-light', '0');
+      entry.surface.style.setProperty('--glass-x', '50%');
+      entry.surface.style.setProperty('--glass-y', '0px');
+      if (entry.button) entry.button.style.removeProperty('translate');
+      entry.button = null;
+    }
+
+    function makeMap(entry) {
+      if (disposed || suspended || !refracts || reducedTransparency.matches) return;
+      // Layout dimensions stay stable while the entrance animation scales the surface.
+      const rect = { width: entry.surface.offsetWidth, height: entry.surface.offsetHeight };
+      if (!rect.width || !rect.height) return;
+      const key = `${Math.round(rect.width)}x${Math.round(rect.height)}`;
+      if (entry.size === key) return;
+      entry.size = key;
+      // Downsample the optical map only; page text always remains native DOM.
+      const ratio = Math.min(1, 384 / Math.max(rect.width, rect.height));
+      const width = Math.max(2, Math.round(rect.width * ratio));
+      const height = Math.max(2, Math.round(rect.height * ratio));
+      const radius = Math.min(parseFloat(getComputedStyle(entry.surface).borderRadius) || 24, rect.width / 2, rect.height / 2) * ratio;
+      const bezel = 20 * ratio;
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const pixels = ctx.createImageData(width, height);
+      for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          const px = x + .5 - width / 2;
+          const py = y + .5 - height / 2;
+          const qx = Math.abs(px) - (width / 2 - radius);
+          const qy = Math.abs(py) - (height / 2 - radius);
+          const ox = Math.max(qx, 0);
+          const oy = Math.max(qy, 0);
+          const length = Math.hypot(ox, oy);
+          const distance = length + Math.min(Math.max(qx, qy), 0) - radius;
+          const envelope = Math.pow(Math.max(0, 1 - Math.abs(distance) / bezel), 2);
+          const nx = length ? ox / length : (qx > qy ? 1 : 0);
+          const ny = length ? oy / length : (qx > qy ? 0 : 1);
+          const index = (y * width + x) * 4;
+          pixels.data[index] = Math.round(128 + Math.sign(px) * nx * envelope * 106);
+          pixels.data[index + 1] = Math.round(128 + Math.sign(py) * ny * envelope * 106);
+          pixels.data[index + 2] = 128;
+          pixels.data[index + 3] = 255;
+        }
+      }
+      ctx.putImageData(pixels, 0, 0);
+      entry.image.setAttribute('href', canvas.toDataURL());
+      entry.surface.style.setProperty('--glass-optics', `url("#${entry.filter.id}")`);
+      entry.surface.dataset.glassOptics = 'refraction';
+    }
+
+    surfaces.forEach((surface, index) => {
+      const filter = document.createElementNS(ns, 'filter');
+      filter.id = `${panel.id}-refraction-${index}`;
+      filter.setAttribute('x', '0%');
+      filter.setAttribute('y', '0%');
+      filter.setAttribute('width', '100%');
+      filter.setAttribute('height', '100%');
+      filter.setAttribute('color-interpolation-filters', 'sRGB');
+      const image = document.createElementNS(ns, 'feImage');
+      image.setAttribute('x', '0');
+      image.setAttribute('y', '0');
+      image.setAttribute('width', '100%');
+      image.setAttribute('height', '100%');
+      image.setAttribute('preserveAspectRatio', 'none');
+      image.setAttribute('result', 'edge-map');
+      const displacement = document.createElementNS(ns, 'feDisplacementMap');
+      displacement.setAttribute('in', 'SourceGraphic');
+      displacement.setAttribute('in2', 'edge-map');
+      displacement.setAttribute('scale', '16');
+      displacement.setAttribute('xChannelSelector', 'R');
+      displacement.setAttribute('yChannelSelector', 'G');
+      filter.append(image, displacement);
+      defs.appendChild(filter);
+      const entry = { surface, filter, image, size: '', frame: 0, active: false, x: 0, y: 0, tx: 0, ty: 0, light: 0, button: null };
+      entries.push(entry);
+      surface.dataset.glassOptics = 'blur';
+
+      function animate() {
+        entry.frame = 0;
+        if (disposed || suspended || reducedMotion.matches || !surface.isConnected) { reset(entry); return; }
+        entry.x += (entry.tx - entry.x) * .17;
+        entry.y += (entry.ty - entry.y) * .17;
+        const targetLight = entry.active ? 1 : 0;
+        entry.light += (targetLight - entry.light) * .14;
+        surface.style.setProperty('--glass-x', `${entry.x.toFixed(1)}px`);
+        surface.style.setProperty('--glass-y', `${entry.y.toFixed(1)}px`);
+        surface.style.setProperty('--glass-light', entry.light.toFixed(3));
+        if (Math.abs(entry.x - entry.tx) + Math.abs(entry.y - entry.ty) + Math.abs(entry.light - targetLight) > .025) {
+          entry.frame = requestAnimationFrame(animate);
+        } else {
+          entry.light = targetLight;
+          surface.style.setProperty('--glass-light', String(targetLight));
+        }
+      }
+      const wake = () => { if (!entry.frame) entry.frame = requestAnimationFrame(animate); };
+      listen(surface, 'pointermove', (event) => {
+        if (suspended || reducedMotion.matches || !finePointer.matches || event.pointerType === 'touch') return;
+        const rect = surface.getBoundingClientRect();
+        entry.tx = event.clientX - rect.left;
+        entry.ty = event.clientY - rect.top;
+        if (!entry.active) { entry.x = entry.tx; entry.y = entry.ty; }
+        entry.active = true;
+        const button = event.target.closest('button:not(:disabled)');
+        if (entry.button && entry.button !== button) entry.button.style.removeProperty('translate');
+        entry.button = button;
+        if (button) {
+          const box = button.getBoundingClientRect();
+          const x = Math.max(-1.8, Math.min(1.8, (event.clientX - box.left - box.width / 2) * .045));
+          const y = Math.max(-1.4, Math.min(1.4, (event.clientY - box.top - box.height / 2) * .06));
+          button.style.translate = `${x.toFixed(2)}px ${y.toFixed(2)}px`;
+        }
+        wake();
+      }, { passive: true });
+      listen(surface, 'pointerleave', () => {
+        entry.active = false;
+        if (entry.button) entry.button.style.removeProperty('translate');
+        entry.button = null;
+        if (!suspended && !reducedMotion.matches) wake();
+      });
+      listen(surface, 'pointerdown', (event) => {
+        const button = event.target.closest('button:not(:disabled)');
+        if (!button || reducedMotion.matches || suspended) return;
+        const rect = button.getBoundingClientRect();
+        const ripple = document.createElement('span');
+        ripple.className = 'cau-cw-glass-ripple';
+        ripple.setAttribute('aria-hidden', 'true');
+        ripple.style.left = `${event.clientX - rect.left}px`;
+        ripple.style.top = `${event.clientY - rect.top}px`;
+        button.appendChild(ripple);
+        ripple.addEventListener('animationend', () => ripple.remove(), { once: true });
+        setTimeout(() => ripple.remove(), 800);
+      }, { passive: true });
+    });
+
+    let resizeFrame = 0;
+    const updateMaps = () => entries.forEach((entry) => {
+      try { makeMap(entry); } catch (_) {
+        // CSP/canvas restrictions should never prevent using the monitor.
+        entry.surface.style.removeProperty('--glass-optics');
+        entry.surface.dataset.glassOptics = 'blur';
+      }
+    });
+    const refresh = () => {
+      if (resizeFrame || disposed || suspended) return;
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = 0;
+        updateMaps();
+      });
+    };
+    const resizeObserver = new ResizeObserver(refresh);
+    surfaces.forEach((surface) => resizeObserver.observe(surface));
+    const preferencesChanged = () => {
+      entries.forEach((entry) => {
+        reset(entry);
+        if (reducedTransparency.matches) {
+          entry.surface.style.removeProperty('--glass-optics');
+          entry.surface.dataset.glassOptics = 'blur';
+          entry.size = '';
+        }
+      });
+      refresh();
+    };
+    listen(reducedMotion, 'change', preferencesChanged);
+    listen(reducedTransparency, 'change', preferencesChanged);
+    listen(finePointer, 'change', preferencesChanged);
+    listen(document, 'visibilitychange', () => {
+      suspended = document.hidden;
+      if (suspended) entries.forEach(reset);
+      else refresh();
+    });
+    // Preserve the material when a page returns from the browser back/forward cache.
+    listen(window, 'pagehide', (event) => {
+      entries.forEach(reset);
+      cancelAnimationFrame(resizeFrame);
+      resizeFrame = 0;
+      if (event.persisted) { suspended = true; return; }
+      disposed = true;
+      resizeObserver.disconnect();
+      svg.remove();
+      removers.forEach((remove) => remove());
+    });
+    listen(window, 'pageshow', () => { suspended = document.hidden; refresh(); });
+    updateMaps();
+  }
+  // END SHARED GLASS ENGINE
 
   function createPanel() {
     if (document.getElementById(`${SCRIPT_ID}-panel`)) return;
@@ -454,7 +861,7 @@
     panel.id = `${SCRIPT_ID}-panel`;
     panel.innerHTML = `
       <div class="cau-cw-header">
-        <div class="cau-cw-title">选课余量监控助手 <small>Chrome v1.4.1</small></div>
+        <div class="cau-cw-title">选课余量监控助手 <small>Chrome v1.5.0</small></div>
         <span id="cau-cw-run-state" class="cau-cw-paused">已停止</span>
         <button id="cau-cw-collapse" class="cau-cw-icon-btn" title="收起/展开">—</button>
       </div>
@@ -564,6 +971,7 @@
 
     writeConfigToPanel(state.config);
     bindPanelEvents();
+    installLiquidGlass(panel, modal);
     updatePageStatus();
     log('助手已就绪。请先填写目标并使用“仅查询一次”核对结果。');
   }

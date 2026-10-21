@@ -16,11 +16,20 @@
 
 | 版本 | 适合场景 |
 | --- | --- |
-| Chrome 扩展 v1.4.1 | 只使用 Google Chrome，希望不依赖 Tampermonkey |
-| Tampermonkey 脚本 v1.4.1 | 使用 Chrome、Edge、Firefox，或已经安装 Tampermonkey |
+| Chrome 扩展 v1.5.0 | 只使用 Google Chrome，希望不依赖 Tampermonkey |
+| Tampermonkey 脚本 v1.5.0 | 使用 Chrome、Edge、Firefox，或已经安装 Tampermonkey |
 
 两个版本具备相同的核心能力。
 
+
+
+## 液态玻璃界面（v1.5.0）
+
+配置面板、课程卡片、输入控件、确认窗和提示采用统一的液态玻璃材质，保留绿色主色、黄色授权区与红色停止按钮。网页内面板可透出背后的真实教务页面，Chrome/Edge 提供轻量边缘折射，其他浏览器使用透明毛玻璃。鼠标移动带动反光，按钮提供轻微磁吸、按压和涟漪，模式切换使用弹性滑动。支持系统“减少动态效果”和“减少透明度”设置；触屏保留常规点击。
+
+![液态玻璃界面离线预览](./docs/liquid-glass.png)
+
+*离线示例，展示透明材质；页面健康状态与真实教务页面无关。*
 
 ## 插件工作模式
 
@@ -39,7 +48,7 @@
 
 ### Google Chrome 扩展
 
-使用“加载已解压的扩展程序”，或从 [最新 Release](https://github.com/apshiap05/CAU-/releases/latest) 下载与当前版本对应的压缩包。下载后请确认 `manifest.json` 的版本为 `1.4.1`；旧 Release 不会自动包含 `main` 分支的后续更新。
+使用“加载已解压的扩展程序”，或从 [最新 Release](https://github.com/apshiap05/cau_course_watcher/releases/latest) 下载与当前版本对应的压缩包。下载后请确认 `manifest.json` 的版本为 `1.5.0`；旧 Release 不会自动包含 `main` 分支的后续更新。
 
 ### Tampermonkey 脚本
 

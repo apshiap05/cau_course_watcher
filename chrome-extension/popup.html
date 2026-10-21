@@ -7,16 +7,17 @@
     <link rel="stylesheet" href="popup.css">
   </head>
   <body>
-    <main>
+    <main id="cau-popup-glass">
       <div class="badge">CAU</div>
       <div>
         <h1>选课余量监控助手</h1>
-        <p class="version">Chrome 扩展 v1.4.1</p>
+        <p class="version">Chrome 扩展 v1.5.0</p>
       </div>
       <p>请先正常登录教务系统，再进入任意选课页面。配置面板会自动识别页面状态并显示在右侧。</p>
       <button id="open-page" type="button">打开教务选课页面</button>
       <p class="note">扩展不保存账号、密码或 Cookie；只保存课程监控配置。</p>
     </main>
     <script src="popup.js"></script>
+    <script src="liquid-glass.js"></script>
   </body>
 </html>

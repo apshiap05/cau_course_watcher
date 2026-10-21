@@ -1,0 +1,10 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const html = fs.readFileSync(0, 'utf8');
+assert.match(html, /data-glass-ready="true"/, '玻璃引擎未初始化');
+assert.match(html, /data-glass-optics="refraction"/, 'Chromium 应启用边缘折射');
+assert.match(html, /data-glass-filter-count="2"/, '面板和确认窗应各有一个光学滤镜');
+assert.match(html, /data-glass-map-ready="true"/, '应按面板尺寸生成位移贴图');
+assert.match(html, /data-cau-start-modal-hidden="true"/, '材质初始化不应打开授权窗');
+console.log('Liquid glass offline rendering: ok');
