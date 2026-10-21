@@ -2,8 +2,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const root = path.join(__dirname, '..');
-const css = fs.readFileSync(path.join(root, 'ui/liquid-glass.css'), 'utf8').trimEnd();
-const engine = fs.readFileSync(path.join(root, 'ui/liquid-glass.js'), 'utf8').trimEnd();
+const css = fs.readFileSync(path.join(root, 'ui/liquid-glass.css'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
+const engine = fs.readFileSync(path.join(root, 'ui/liquid-glass.js'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 const check = process.argv.includes('--check');
 let stale = false;
 function output(file, content) {
